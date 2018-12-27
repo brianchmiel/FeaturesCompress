@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="feb008bb-9727-4cde-a05f-1585f31952c3" name="turandot" url="http://turandot">
+        <fileTransfer host="turandot" port="22" rootFolder="/home/brianch/FeaturesCompress" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="91c39aa7-ab2b-47da-9167-e5c92f1f8771" name="carmen" url="http://carmen">
+        <fileTransfer host="carmen" port="22" rootFolder="/home/brianch/FeaturesCompress" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
