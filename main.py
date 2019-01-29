@@ -21,8 +21,9 @@ import torch
 import torch.optim as optim
 import tqdm
 from torch.nn import CrossEntropyLoss
-from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, sendEmail, load_data, models
+from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, sendEmail, load_data, models, check_if_need_to_collect_statistics
 from run import Run
+from compress_loss import CompressLoss
 def parseArgs():
 
     modelNames = loadModelNames()
@@ -45,8 +46,14 @@ def parseArgs():
                         help='Quantization activation bitwidth (default: 5)')
     parser.add_argument('--model', '-a', metavar='MODEL', default='tiny_resnet', choices=modelNames,
                         help='model architecture: ' + ' | '.join(modelNames) + ' (default: tinyresnet)')
-    parser.add_argument('--epochs', type=int, default=100,help='num of training epochs ')
-
+    parser.add_argument('--epochs', type=int, default=10,help='num of training epochs ')
+    parser.add_argument('--compressRatio', type=int, default=None, help='Compress Ratio')
+    parser.add_argument('--FixedQuant', type= bool, default = True, help='Use fixed quantization?')
+    parser.add_argument('--MacroBlockSz', type=int, default=16, help='MacroBlockSz')
+    parser.add_argument('--MicroBlockSz', type=int, default=4, help='MicroBlockSz')
+    parser.add_argument('--EigenVar', type=float, default=0.98, help='EigenVar')
+    parser.add_argument('--lmbda', type=float, default=100, help='Lambda value for CompressLoss')
+    parser.add_argument('--layerCompress', type=int, default=3, help='Which layer we want to add compression')
     args = parser.parse_args()
 
 
@@ -62,7 +69,7 @@ def parseArgs():
     # create folder
     baseFolder = dirname(abspath(getfile(currentframe())))
     args.time = time.strftime("%Y%m%d-%H%M%S")
-    args.folderName = '{}, {},{}'.format(args.model, args.dataset, args.time)
+    args.folderName = '{}_{}_{}'.format(args.model, args.dataset, args.time)
     args.save = '{}/results/{}'.format(baseFolder, args.folderName)
     if not os.path.exists(args.save):
         os.makedirs(args.save)
@@ -112,37 +119,32 @@ if __name__ == '__main__':
 
     #Parameters
     start_epoch = 0
-    best_acc = 0
     #preTrained
     if args.preTrained is not None:
         # Load checkpoint.
         logging.info('==> Resuming from checkpoint..')
-        assert os.path.isdir('preTrained'), 'Error: no checkpoint directory found!'
-        checkpoint = torch.load('./preTrained/' + args.preTrained)
-        model.load_state_dict(checkpoint['net'])
-        best_acc = checkpoint['acc']
-        start_epoch = checkpoint['epoch']
+        preTrainedDir = 'preTrained/' + args.preTrained
+        assert os.path.isdir(preTrainedDir), 'Error: no checkpoint directory found!'
+        model.loadPreTrained(preTrainedDir)
+
 
     #Optimization and criterion
     #TODO - add option to choose criterion and optimizer
-    criterion = CrossEntropyLoss()
+    criterion = CompressLoss(args)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
 
-    run =  Run(model, logging, optimizer, criterion, best_acc)
+    run =  Run(model, logging, optimizer, criterion)
     try:
         # log command line
         logging.info('CommandLine: {} PID: {} Hostname: {} CUDA_VISIBLE_DEVICES {}'.format(argv, getpid(), gethostname(), environ.get('CUDA_VISIBLE_DEVICES')))
-
         for epoch in tqdm.trange(start_epoch, start_epoch + args.epochs):
             logging.info('\nEpoch: {}'.format(epoch))
             # Train
             run.runTrain(trainLoader)
             # Test
             run.runTest(args, testLoader, epoch)
-
         logging.info('Done !')
-
     except Exception as e:
         # create message content
         # messageContent = '[{}] stopped due to error [{}] \n traceback:[{}]'. \

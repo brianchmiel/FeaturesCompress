@@ -1,0 +1,21 @@
+{
+    "actBitwidth": 32,
+    "batch": 128,
+    "data": "./data/",
+    "dataset": "cifar10",
+    "device": "cuda:0",
+    "epochs": 200,
+    "folderName": "resnet, cifar10,20181227-135705",
+    "gpu": [
+        0
+    ],
+    "jsonPath": "/home/brianch/FeaturesCompress/results/resnet, cifar10,20181227-135705/args.txt",
+    "lr": 0.01,
+    "model": "resnet",
+    "momentum": 0.9,
+    "nClasses": 10,
+    "preTrained": null,
+    "save": "/home/brianch/FeaturesCompress/results/resnet, cifar10,20181227-135705",
+    "time": "20181227-135705",
+    "weight_decay": 4e-05
+}

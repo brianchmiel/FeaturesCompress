@@ -24,7 +24,8 @@ import torchvision
 from os.path import join
 import torchvision.datasets as datasets
 import Models as models
-
+import collections
+import actquant
 
 __DATASETS_DEFAULT_PATH = '/media/ssd/Datasets/'
 
@@ -78,6 +79,16 @@ def logBaselineModel(args, logger):
         loggerRows.append(['Model', '{}'.format(checkpointKey)])
         loggerRows.append(['Validation accuracy', '{}'.format(best_prec1_str)])
         logger.addInfoTable('Baseline model', loggerRows)
+
+
+def check_if_need_to_collect_statistics(model):
+    for layer in model.modules():
+    # for layer in model.module.layers_list():
+        if isinstance(layer, actquant.ActQuantBuffers):
+            if hasattr(layer, 'running_std') and float(layer.running_std) != 0:
+                return False
+
+    return True
 
 
 # collect possible models names
