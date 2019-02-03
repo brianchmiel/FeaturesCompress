@@ -51,15 +51,23 @@ def parseArgs():
     parser.add_argument('--FixedQuant', type= bool, default = True, help='Use fixed quantization?')
     parser.add_argument('--MacroBlockSz', type=int, default=16, help='MacroBlockSz')
     parser.add_argument('--MicroBlockSz', type=int, default=4, help='MicroBlockSz')
-    parser.add_argument('--EigenVar', type=float, default=0.98, help='EigenVar')
-    parser.add_argument('--lmbda', type=float, default=100, help='Lambda value for CompressLoss')
-    parser.add_argument('--layerCompress', type=int, default=3, help='Which layer we want to add compression')
+    parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar')
+    parser.add_argument('--lmbda', type=float, default=0, help='Lambda value for CompressLoss')
+
+    parser.add_argument('--layerPCA', type=str, default=None, help='Which layer we want to do PCA. e.g: 1,2')
+    parser.add_argument('--ProjType', type=str, default='eye', choices = ['eye', 'pca'], help='which projection we do: [eye, pca]')
+    parser.add_argument('--onlyInference', action= 'store_true', help='if only inference or also train')
+
     args = parser.parse_args()
 
 
     # update GPUs list
-    if type(args.gpu) is str:
+    if type(args.gpu) is not 'None':
         args.gpu = [int(i) for i in args.gpu.split(',')]
+
+    if args.layerPCA != 'None':
+
+        args.layerPCA = [int(i) for i in args.layerPCA.split(',')]
 
     args.device = 'cuda:' + str(args.gpu[0])
 
@@ -141,7 +149,8 @@ if __name__ == '__main__':
         for epoch in tqdm.trange(start_epoch, start_epoch + args.epochs):
             logging.info('\nEpoch: {}'.format(epoch))
             # Train
-            run.runTrain(trainLoader)
+            if not args.onlyInference:
+                run.runTrain(trainLoader)
             # Test
             run.runTest(args, testLoader, epoch)
         logging.info('Done !')

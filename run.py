@@ -43,7 +43,7 @@ class Run:
 
     def runTest(self, args, testLoader, epoch):
         self.model.eval()
-        test_loss, correct, total = 0, 0, 0
+        crossEntrTotalLoss, compressTotalLoss, test_loss, correct, total = 0, 0, 0, 0, 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
                 inputs, targets = inputs.cuda(), targets.cuda()
@@ -52,13 +52,18 @@ class Run:
                 loss, crossEntropyLoss, compressLoss = self.criterion(out, targets, self.model.calcSnr())
 
                 test_loss += loss.item()
+                crossEntrTotalLoss += crossEntropyLoss.item()
+                compressTotalLoss += compressLoss.item()
+
                 _, predicted = out.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
 
-                self.logging.info('step: {} / {} : Loss: {:.3f} | Acc: {:.3f}% ({}/{}) '
-                             .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1),
-                                                    100. * correct / total, correct, total))
+                self.logging.info('step: {} / {} : Loss: {:.3f} CrossEntropyLoss: {:.3f} compressLoss: {:.3f} ' '| '
+                              'Acc: {:.3f}% ({}/{})'
+                             .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1), crossEntrTotalLoss / (batch_idx + 1) ,
+                                     compressTotalLoss / (batch_idx + 1),  100. * correct / total, correct, total))
+
 
         # Save checkpoint.
         acc = 100. * correct / total
