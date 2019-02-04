@@ -48,11 +48,13 @@ class pcaWhitening(nn.Module):
                              j * self.microBlockSz:(j + 1) * self.microBlockSz].contiguous().view(input.shape[0],-1).t()),dim=1)
 
             # Centering the data
-            mn = torch.mean(im,dim = 1,keepdim=True)
+            mn = torch.mean(im, dim=1, keepdim=True)
             im = (im - mn)
+
 
             #Calculate projection matrix if needed
             if self.projType == 'pca':
+
                 #covariance matrix
                 cov = torch.matmul(im,im.t())/im.shape[1]
                 # svd
@@ -72,22 +74,36 @@ class pcaWhitening(nn.Module):
                 sRatio = torch.cumsum(s, 0) / torch.sum(s)
                 cutIdx = (sRatio >= self.eigenVar).nonzero()[0]
                 # throw unimportant eigenvector
-                u = u[:, cutIdx:]
-                imProj = imProj[cutIdx:,:]
+                u = u[:, :cutIdx]
+                imProj = imProj[:cutIdx,:]
 
             # self.nonZeroElem += imProj.nonzero()[-1][0]
 
             # quantize and send to memory
-            # c_x = self.act_clamp(imProj, self.clamp_val)
-            self.clamp_val = torch.max(imProj) - torch.min(imProj)
-            imProjQ = act_quant(imProj, self.clamp_val, self.actBitwidth)
+            imProjQ = imProj.clone()
+
+            # mxx = torch.max(imProj)
+            # mnn = torch.min(imProj)
+            # imProjQ = act_quant(torch.clamp(imProj, max=mxx, min=mnn), max=mxx, min=mnn,
+            #                           bitwidth=self.actBitwidth)
+            #
+            for i in range(0,imProj.shape[0]):
+                mxx = torch.max(imProj[i,:])
+                mnn = torch.min(imProj[i,:])
+                imProjQ[i,:] = act_quant(torch.clamp(imProj[i,:],max=mxx,min=mnn), max = mxx, min = mnn, bitwidth = self.actBitwidth)
+
+            # mxx = torch.std(imProj)*5
+            # mnn = -mxx #torch.min(imProj)
+            # imProjQ = act_quant(torch.clamp(imProj, max=mxx, min=mnn), max=mxx, min=mnn,
+            #                           bitwidth=self.actBitwidth)
 
             # self.QnonZeroElem += imProjQ.nonzero()[-1][0]
 
             self.snr += torch.sum((imProj - imProjQ) ** 2) # / torch.numel(imProj)
 
-            # read from memory and project back
-            imProjQ = torch.matmul(u, imProjQ).t()
+            # read from memory , project back and centering back
+            imProjQ = (torch.matmul(u, imProjQ) + mn).t()
+
 
 
 
@@ -109,9 +125,9 @@ class pcaWhitening(nn.Module):
         x = F.relu(x + torch.abs(clamp_val)) - F.relu(x - torch.abs(clamp_val))
         return x
 
-def act_quant(x, act_max_value, bitwidth):
-    act_scale = (2 ** bitwidth - 1) / act_max_value
-    q_x = Round.apply(x * act_scale) * 1 / act_scale
+def act_quant(x, max, min, bitwidth):
+    act_scale = (2 ** bitwidth - 1) / (max - min)
+    q_x = (Round.apply((x - min)* act_scale) * 1 / act_scale ) + min
     return q_x
 
 class Round(torch.autograd.Function):
