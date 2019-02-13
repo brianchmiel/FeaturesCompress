@@ -11,10 +11,10 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.pca1 = pcaWhitening(args, pcaList[0])
+        self.pca1 = pcaWhitening(args, pcaList[0],planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.pca2 = pcaWhitening(args, pcaList[1])
+        self.pca2 = pcaWhitening(args, pcaList[1],planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
             self.shortcut = nn.Sequential(
@@ -50,7 +50,7 @@ class ResNet18(nn.Module):
         self.layerPcaList = self._createPcaLayerList(args.layerPCA)
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.pca1 = pcaWhitening(args, self.layerPcaList[0])
+        self.pca1 = pcaWhitening(args, self.layerPcaList[0], 64)
         num_blocks = [2, 2, 2, 2]
 
         self.layer1 = self._make_layer(args, BasicBlock, 64, num_blocks[0], stride=1, pcaList = self.layerPcaList[1:5])
@@ -62,11 +62,11 @@ class ResNet18(nn.Module):
      #   self.pcaLayer = args.layerCompress
 
         self.linear = nn.Linear(512*BasicBlock.expansion, args.nClasses)
-
-        self.statistics_phase = False
+        self.statsState = False
 
         self.totalSnr = 0
         self.layersList = self.buildLayersList()
+
 
     def _createPcaLayerList(self, layerPca):
         lst = np.array([False for i in range(0,17)])
@@ -74,6 +74,20 @@ class ResNet18(nn.Module):
             idx = np.array(layerPca)
             lst[idx] = True
         return list(lst)
+
+    def enableStatisticPhase(self):
+        self.statsState = True
+        for l in self.layersList:
+            if isinstance(l,pcaWhitening):
+                l.collectStats = True
+
+
+    def disableStatisticPhase(self):
+        self.statsState = False
+        for l in self.layersList:
+            if isinstance(l, pcaWhitening):
+                l.collectStats = False
+                l.updateClampVal()
 
 
     def _make_layer(self, args, block, planes, num_blocks, stride,pcaList):

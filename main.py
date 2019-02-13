@@ -37,7 +37,7 @@ def parseArgs():
     parser.add_argument('--weight_decay', type=float, default=4e-5, help='weight decay')
     parser.add_argument('--gpu', type=str, default='0', help='gpu device id, e.g. 0,1,3')
 
-    parser.add_argument('--batch', default=128, type=int, help='batch size')
+    parser.add_argument('--batch', default=512, type=int, help='batch size')
     parser.add_argument('--dataset', metavar='DATASET', default='cifar10', choices=datasets.keys(), help='dataset name')
 
     parser.add_argument('--preTrained', type=str, default=None, help='pre-trained model to copy weights from')
@@ -46,7 +46,7 @@ def parseArgs():
                         help='Quantization activation bitwidth (default: 5)')
     parser.add_argument('--model', '-a', metavar='MODEL', default='tiny_resnet', choices=modelNames,
                         help='model architecture: ' + ' | '.join(modelNames) + ' (default: tinyresnet)')
-    parser.add_argument('--epochs', type=int, default=10,help='num of training epochs ')
+    parser.add_argument('--epochs', type=int, default=1,help='num of training epochs ')
     parser.add_argument('--compressRatio', type=int, default=None, help='Compress Ratio')
     parser.add_argument('--FixedQuant', type= bool, default = True, help='Use fixed quantization?')
     parser.add_argument('--MacroBlockSz', type=int, default=16, help='MacroBlockSz')
@@ -66,7 +66,6 @@ def parseArgs():
         args.gpu = [int(i) for i in args.gpu.split(',')]
 
     if args.layerPCA != 'None':
-
         args.layerPCA = [int(i) for i in args.layerPCA.split(',')]
 
     args.device = 'cuda:' + str(args.gpu[0])
@@ -77,7 +76,7 @@ def parseArgs():
     # create folder
     baseFolder = dirname(abspath(getfile(currentframe())))
     args.time = time.strftime("%Y%m%d-%H%M%S")
-    args.folderName = '{}_{}_{}'.format(args.model, args.dataset, args.time)
+    args.folderName = '{}_{}_{}_{}_{}'.format(args.model,args.ProjType , args.actBitwidth, args.EigenVar, args.time)
     args.save = '{}/results/{}'.format(baseFolder, args.folderName)
     if not os.path.exists(args.save):
         os.makedirs(args.save)
@@ -146,6 +145,14 @@ if __name__ == '__main__':
     try:
         # log command line
         logging.info('CommandLine: {} PID: {} Hostname: {} CUDA_VISIBLE_DEVICES {}'.format(argv, getpid(), gethostname(), environ.get('CUDA_VISIBLE_DEVICES')))
+
+        #collect statistics
+        logging.info('Starting collect statistics')
+        model.enableStatisticPhase()
+        run.runTest(args, testLoader, 0)
+        model.disableStatisticPhase()
+        logging.info('Finish collect statistics')
+
         for epoch in tqdm.trange(start_epoch, start_epoch + args.epochs):
             logging.info('\nEpoch: {}'.format(epoch))
             # Train
