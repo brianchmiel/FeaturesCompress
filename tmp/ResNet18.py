@@ -3,6 +3,19 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from operations import pcaWhitening
+import torch.utils.model_zoo as model_zoo
+
+
+
+model_urls = {
+    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
+    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+}
+
+
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -88,6 +101,7 @@ class ResNet18(nn.Module):
             if isinstance(l, pcaWhitening):
                 l.collectStats = False
                 l.updateClampVal()
+                l.updateProjectBase()
 
 
     def _make_layer(self, args, block, planes, num_blocks, stride,pcaList):
@@ -110,10 +124,18 @@ class ResNet18(nn.Module):
         out = self.linear(out)
         return out
 
-    def loadPreTrained(self,path):
-        fullPath = path + '/ckpt.t7'
-        checkpoint = torch.load(fullPath)
-        self.load_state_dict(checkpoint['net'],False)
+    def loadPreTrained(self,path,args):
+        if args.dataset == 'cifar10':
+            fullPath = path + '/ckpt.t7'
+            checkpoint = torch.load(fullPath)
+            self.load_state_dict(checkpoint['net'],False)
+        elif args.dataset == 'imagenet':
+            self.load_state_dict(model_zoo.load_url(model_urls['resnet18']),False)
+
+        else:
+            raise NameError('only support cifar10 and imagenet')
+
+
 
     def buildLayersList(self):
         layersList = []

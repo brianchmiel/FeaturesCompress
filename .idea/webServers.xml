@@ -18,6 +18,14 @@
           <option name="port" value="22" />
         </fileTransfer>
       </webServer>
+      <webServer id="e517a2ff-8b7f-4ecd-b92f-f2a7292af5cb" name="srv8" url="http://aipg-srv08.iil.intel.com">
+        <fileTransfer host="aipg-srv08.iil.intel.com" port="22" rootFolder="/home/brianch/FeaturesCompress" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
     </option>
   </component>
 </project>

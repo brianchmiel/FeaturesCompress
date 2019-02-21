@@ -6,10 +6,8 @@ import argparse
 import logging
 import os
 from os.path import dirname, abspath
-from inspect import getfile, currentframe, isclass
+from inspect import getfile, currentframe
 import time
-from json import dump
-from traceback import format_exc
 from torch.cuda import is_available, set_device
 from torch.cuda import manual_seed as cuda_manual_seed
 from torch import manual_seed as torch_manual_seed
@@ -17,56 +15,51 @@ import numpy as np
 import torch.backends.cudnn as cudnn
 from datetime import datetime
 from socket import gethostname
-import torch
 import torch.optim as optim
 import tqdm
-from torch.nn import CrossEntropyLoss
-from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, sendEmail, load_data, models, check_if_need_to_collect_statistics
+from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, load_data, checkModelDataset
 from run import Run
 from compress_loss import CompressLoss
+import Models
+from torch.nn import CrossEntropyLoss
 def parseArgs():
 
     modelNames = loadModelNames()
     datasets = loadDatasets()
 
-
     parser = argparse.ArgumentParser(description='FeaturesCompress')
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
+    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--data', type=str, default ='./data/',help='location of the data corpus' )
     parser.add_argument('--weight_decay', type=float, default=4e-5, help='weight decay')
     parser.add_argument('--gpu', type=str, default='0', help='gpu device id, e.g. 0,1,3')
 
-    parser.add_argument('--batch', default=512, type=int, help='batch size')
+    parser.add_argument('--batch', default=250, type=int, help='batch size')
     parser.add_argument('--dataset', metavar='DATASET', default='cifar10', choices=datasets.keys(), help='dataset name')
 
-    parser.add_argument('--preTrained', type=str, default=None, help='pre-trained model to copy weights from')
+
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
     parser.add_argument('--actBitwidth', default=32, type=int, metavar='N',
                         help='Quantization activation bitwidth (default: 5)')
-    parser.add_argument('--model', '-a', metavar='MODEL', default='tiny_resnet', choices=modelNames,
-                        help='model architecture: ' + ' | '.join(modelNames) + ' (default: tinyresnet)')
-    parser.add_argument('--epochs', type=int, default=1,help='num of training epochs ')
-    parser.add_argument('--compressRatio', type=int, default=None, help='Compress Ratio')
-    parser.add_argument('--FixedQuant', type= bool, default = True, help='Use fixed quantization?')
-    parser.add_argument('--MacroBlockSz', type=int, default=16, help='MacroBlockSz')
-    parser.add_argument('--MicroBlockSz', type=int, default=4, help='MicroBlockSz')
-    parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar')
+    parser.add_argument('--model', '-a', metavar='MODEL', choices=modelNames,
+                        help='model architecture: ' + ' | '.join(modelNames) )
+    parser.add_argument('--epochs', type=int, default=200,help='num of training epochs ')
+    parser.add_argument('--MicroBlockSz', type=int, default=1, help='MicroBlockSz')
+    parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar - should be between 0 to 1')
     parser.add_argument('--lmbda', type=float, default=0, help='Lambda value for CompressLoss')
-
-    parser.add_argument('--layerPCA', type=str, default=None, help='Which layer we want to do PCA. e.g: 1,2')
-    parser.add_argument('--ProjType', type=str, default='eye', choices = ['eye', 'pca'], help='which projection we do: [eye, pca]')
-    parser.add_argument('--onlyInference', action= 'store_true', help='if only inference or also train')
-
+    parser.add_argument('--projType', type=str, default='eye', choices = ['eye', 'pca'], help='which projection we do: [eye, pca]')
+    parser.add_argument('--project', action= 'store_true', help='if use projection - run only inference')
+    parser.add_argument('--preTrained', action= 'store_true', help='pre-trained model to copy weights from')
+    parser.add_argument('--perCh', action='store_true', help='per channel quantization')
     args = parser.parse_args()
 
+    #check that model-dataset are good pair
+    checkModelDataset(args)
 
     # update GPUs list
     if type(args.gpu) is not 'None':
         args.gpu = [int(i) for i in args.gpu.split(',')]
 
-    if args.layerPCA != 'None':
-        args.layerPCA = [int(i) for i in args.layerPCA.split(',')]
 
     args.device = 'cuda:' + str(args.gpu[0])
 
@@ -76,7 +69,7 @@ def parseArgs():
     # create folder
     baseFolder = dirname(abspath(getfile(currentframe())))
     args.time = time.strftime("%Y%m%d-%H%M%S")
-    args.folderName = '{}_{}_{}_{}_{}'.format(args.model,args.ProjType , args.actBitwidth, args.EigenVar, args.time)
+    args.folderName = '{}_{}_{}_{}_{}_{}'.format(args.model,args.projType , args.actBitwidth, args.EigenVar, args.dataset , args.time)
     args.save = '{}/results/{}'.format(baseFolder, args.folderName)
     if not os.path.exists(args.save):
         os.makedirs(args.save)
@@ -116,62 +109,49 @@ if __name__ == '__main__':
 
 
     # Data
-    trainLoader, testLoader = load_data(args, logging)
+    trainLoader, testLoader, statloader = load_data(args, logging)
 
     # Model
     logging.info('==> Building model..')
-    modelClass = models.__dict__[args.model]
+    modelClass = Models.__dict__[args.model]
     model = modelClass(args)
     model = model.cuda()
 
     #Parameters
     start_epoch = 0
-    #preTrained
-    if args.preTrained is not None:
+    # preTrained
+    if args.preTrained:
         # Load checkpoint.
         logging.info('==> Resuming from checkpoint..')
-        preTrainedDir = 'preTrained/' + args.preTrained
-        assert os.path.isdir(preTrainedDir), 'Error: no checkpoint directory found!'
-        model.loadPreTrained(preTrainedDir)
+        model.loadPreTrained()
 
 
     #Optimization and criterion
     #TODO - add option to choose criterion and optimizer
-    criterion = CompressLoss(args)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    criterion = CrossEntropyLoss().cuda()
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
+    run =  Run(model, logging, optimizer, criterion,args.lr)
+    # log command line
+    logging.info('CommandLine: {} PID: {} Hostname: {} CUDA_VISIBLE_DEVICES {}'.format(argv, getpid(), gethostname(), environ.get('CUDA_VISIBLE_DEVICES')))
 
-    run =  Run(model, logging, optimizer, criterion)
-    try:
-        # log command line
-        logging.info('CommandLine: {} PID: {} Hostname: {} CUDA_VISIBLE_DEVICES {}'.format(argv, getpid(), gethostname(), environ.get('CUDA_VISIBLE_DEVICES')))
-
-        #collect statistics
+    #collect statistics
+    if args.project:
         logging.info('Starting collect statistics')
         model.enableStatisticPhase()
-        run.runTest(args, testLoader, 0)
+        run.runTest(args, statloader, 0)
         model.disableStatisticPhase()
         logging.info('Finish collect statistics')
-
+        logging.info('Run Projection on inference')
+        run.runTest(args, testLoader, 0)
+    else:
         for epoch in tqdm.trange(start_epoch, start_epoch + args.epochs):
             logging.info('\nEpoch: {}'.format(epoch))
             # Train
-            if not args.onlyInference:
-                run.runTrain(trainLoader)
+        #    run.runTrain(trainLoader, epoch)
             # Test
             run.runTest(args, testLoader, epoch)
-        logging.info('Done !')
-    except Exception as e:
-        # create message content
-        # messageContent = '[{}] stopped due to error [{}] \n traceback:[{}]'. \
-        #     format(args.folderName, str(e), format_exc())
-        # # send e-mail with error details
-        # subject = '[{}] stopped'.format(args.folderName)
-        # sendEmail(['brianch@campus.technion.ac.il'], subject, messageContent)
-        #
-        # # forward exception
-        raise e
-
+    logging.info('Done !')
 
 
 
