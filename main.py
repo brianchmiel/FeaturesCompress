@@ -48,6 +48,7 @@ def parseArgs():
     parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar - should be between 0 to 1')
     parser.add_argument('--lmbda', type=float, default=0, help='Lambda value for CompressLoss')
     parser.add_argument('--projType', type=str, default='eye', choices = ['eye', 'pca'], help='which projection we do: [eye, pca]')
+    parser.add_argument('--clipType', type=str, default='gaussian', choices = ['laplace', 'gaussian'], help='which clipping we do: [laplace, gaussian]')
     parser.add_argument('--project', action= 'store_true', help='if use projection - run only inference')
     parser.add_argument('--preTrained', action= 'store_true', help='pre-trained model to copy weights from')
     parser.add_argument('--perCh', action='store_true', help='per channel quantization')
@@ -139,7 +140,7 @@ if __name__ == '__main__':
     if args.project:
         logging.info('Starting collect statistics')
         model.enableStatisticPhase()
-        run.runTest(args, statloader, 0)
+        run.runTest(args, testLoader, 0)
         model.disableStatisticPhase()
         logging.info('Finish collect statistics')
         logging.info('Run Projection on inference')

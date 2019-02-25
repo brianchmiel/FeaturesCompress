@@ -79,9 +79,9 @@ class Bottleneck(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = conv1x1(planes, planes * self.expansion)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu1 = ReLuPCA(args,planes) # nn.ReLU(inplace=True)
-        self.relu2 = ReLuPCA(args,planes) # nn.ReLU(inplace=True)
-        self.relu3 = ReLuPCA(args,planes * self.expansion)  # nn.ReLU(inplace=True)
+        self.relu1 = ReLuPCA(args) # nn.ReLU(inplace=True)
+        self.relu2 = ReLuPCA(args)  # nn.ReLU(inplace=True)
+        self.relu3 = ReLuPCA(args)  # nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
@@ -138,7 +138,6 @@ class ResNetImagenet(nn.Module):
 
         self.statsState = False
         self.layersList = self.buildLayersList()
-        self.ReLuPcaList = self.buildReluPcaList()
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -190,7 +189,7 @@ class ResNetImagenet(nn.Module):
         return x
 
     def loadPreTrained(self):
-        self.load_state_dict(model_zoo.load_url(model_urls[self.name]),False)
+        self.load_state_dict(model_zoo.load_url(model_urls[self.name]))
 
 
     def buildLayersList(self):
@@ -205,30 +204,18 @@ class ResNetImagenet(nn.Module):
 
         return layersList
 
-    def buildReluPcaList(self):
-        list = []
-        for l in self.layersList:
-            if isinstance(l,ReLuPCA):
-                list.append(l)
-        return list
-
-
     def enableStatisticPhase(self):
         self.statsState = True
-        for l in self.ReLuPcaList:
-            l.collectStats = True
+        for l in self.layersList:
+            if isinstance(l,ReLuPCA):
+                l.collectStats = True
 
     def disableStatisticPhase(self):
         self.statsState = False
-        for l in self.ReLuPcaList:
-            l.collectStats = False
-            l.updateClampValLap()
-            l.updateClampValGaus()
-            l.updateClamp()
-
-        #We quantize first and last layer to 8 bits
-        self.ReLuPcaList[0].actBitwidth = 8
-        self.ReLuPcaList[-1].actBitwidth = 8
+        for l in self.layersList:
+            if isinstance(l, ReLuPCA):
+                l.collectStats = False
+                l.updateClampVal()
 
 class ResNetCifar(nn.Module):
 
@@ -257,7 +244,7 @@ class ResNetCifar(nn.Module):
 
         self.statsState = False
         self.layersList = self.buildLayersList()
-        self.ReLuPcaList = self.buildReluPcaList()
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -312,27 +299,19 @@ class ResNetCifar(nn.Module):
                 layersList.append(m)
 
         return layersList
-    def buildReluPcaList(self):
-        list = []
-        for l in self.layersList:
-            if isinstance(l,ReLuPCA):
-                list.append(l)
-        return list
 
     def enableStatisticPhase(self):
         self.statsState = True
-        for l in self.ReLuPcaList:
-            l.collectStats = True
+        for l in self.layersList:
+            if isinstance(l, ReLuPCA):
+                l.collectStats = True
 
     def disableStatisticPhase(self):
         self.statsState = False
-        for l in self.ReLuPcaList:
-            l.collectStats = False
-            l.updateClampVal()
-
-        #We quantize first and last layer to 8 bits
-        self.ReLuPcaList[0].actBitwidth = 8
-        self.ReLuPcaList[-1].actBitwidth = 8
+        for l in self.layersList:
+            if isinstance(l, ReLuPCA):
+                l.collectStats = False
+                l.updateClampVal()
 
 #=========== Cifar ResNet =============
 
