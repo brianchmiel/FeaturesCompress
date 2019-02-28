@@ -117,7 +117,7 @@ class ReLuPCA(nn.Module):
             imProjQ = (imProjQ - torch.mean(imProjQ, dim=1, keepdim=True))
 
             #return original mean
-            imProjQ = (imProjQ + mn).t()
+            imProjQ = (imProjQ + mn)
 
             input = imProjQ.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
 
