@@ -29,13 +29,11 @@ class Run:
     def runTrain(self, trainLoader,epoch):
         self.model.train()
         self.adjust_learning_rate(epoch)
-        # crossEntrTotalLoss, compressTotalLoss, train_loss, correct, total = 0, 0, 0, 0, 0
         train_loss, correct, total = 0, 0, 0
         for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(trainLoader)):
             inputs, targets = inputs.cuda(), targets.cuda()
             self.optimizer.zero_grad()
             out = self.model(inputs)
-            # loss, crossEntropyLoss, compressLoss = self.criterion(out, targets, self.model.calcSnr())
             loss = self.criterion(out, targets)
             loss.backward()
 
@@ -48,14 +46,6 @@ class Run:
             _, predicted = out.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
-
-            # self.logging.info('step: {} / {} : Loss: {:.3f} CrossEntropyLoss: {:.3f} compressLoss: {:.3f} ' '| '
-            #                   'Acc: {:.3f}% ({}/{})'.format(batch_idx, len(trainLoader),
-            #                    train_loss / (batch_idx + 1), crossEntrTotalLoss / (batch_idx + 1) , compressTotalLoss / (batch_idx + 1),
-            #                                                 100. * correct / total, correct, total,))
-            #
-            # self.logging.info('Quant Parameter: {}. QuantRatio: {}'.format(self.model.getQparameter(), self.model.getQuantInform()))
-
 
             self.logging.info('step: {} / {} : Loss: {:.3f} ' '| '
                                   'Acc: {:.3f}% ({}/{})'.format(batch_idx, len(trainLoader),
@@ -70,21 +60,11 @@ class Run:
                 inputs, targets = inputs.cuda(), targets.cuda()
                 out = self.model(inputs)
                 if not self.model.statsState:
-                    # loss, crossEntropyLoss, compressLoss = self.criterion(out, targets, self.model.calcSnr())
                     loss = self.criterion(out, targets)
                     test_loss += loss.item()
-                    # crossEntrTotalLoss += crossEntropyLoss.item()
-                    # compressTotalLoss += compressLoss.item()
-
                     _, predicted = out.max(1)
                     total += targets.size(0)
                     correct += predicted.eq(targets).sum().item()
-
-                    # self.logging.info('step: {} / {} : Loss: {:.3f} CrossEntropyLoss: {:.3f} compressLoss: {:.3f} ' '| '
-                    #               'Acc: {:.3f}% ({}/{})'
-                    #              .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1), crossEntrTotalLoss / (batch_idx + 1) ,
-                    #                      compressTotalLoss / (batch_idx + 1),  100. * correct / total, correct, total))
-                    #
 
                     self.logging.info('step: {} / {} : Loss: {:.3f}  ' '| '
                                       'Acc: {:.3f}% ({}/{})'

@@ -1,14 +1,12 @@
 import math
 
 import torch
-import torch.nn.functional as F
 
 import numpy as np
 import matplotlib as mpl
 
 mpl.use('Agg')
-import matplotlib.pyplot as plt
-import actquant
+from tmp import actquant
 
 sqrt_of_2 = math.sqrt(2)
 
