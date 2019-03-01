@@ -1,10 +1,8 @@
-
-
+import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
-import torch
-from operations import ReLuPCA
 
+from operations import ReLuPCA
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -20,13 +18,13 @@ def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
+
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class BasicBlock(nn.Module):
-
     expansion = 1
 
     def __init__(self, args, in_planes, planes, stride=1, downsample=None):
@@ -38,9 +36,9 @@ class BasicBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
 
-        self.relu1 = ReLuPCA(args,planes)
+        self.relu1 = ReLuPCA(args, planes)
 
-        self.relu2 = ReLuPCA(args,planes)        # nn.ReLU(inplace=True)
+        self.relu2 = ReLuPCA(args, planes)  # nn.ReLU(inplace=True)
         self.downsample = downsample
 
         self.stride = stride
@@ -61,12 +59,13 @@ class BasicBlock(nn.Module):
     def getLayers(self):
         layers = []
         for l in self._modules.values():
-            if isinstance(l,nn.Sequential):
+            if isinstance(l, nn.Sequential):
                 for ls in l._modules.values():
                     layers.append(ls)
             else:
                 layers.append(l)
         return layers
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -79,9 +78,9 @@ class Bottleneck(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = conv1x1(planes, planes * self.expansion)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu1 = ReLuPCA(args,planes) # nn.ReLU(inplace=True)
-        self.relu2 = ReLuPCA(args,planes) # nn.ReLU(inplace=True)
-        self.relu3 = ReLuPCA(args,planes * self.expansion)  # nn.ReLU(inplace=True)
+        self.relu1 = ReLuPCA(args, planes)  # nn.ReLU(inplace=True)
+        self.relu2 = ReLuPCA(args, planes)  # nn.ReLU(inplace=True)
+        self.relu3 = ReLuPCA(args, planes * self.expansion)  # nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
@@ -110,12 +109,13 @@ class Bottleneck(nn.Module):
     def getLayers(self):
         layers = []
         for l in self._modules.values():
-            if isinstance(l,nn.Sequential):
+            if isinstance(l, nn.Sequential):
                 for ls in l._modules.values():
                     layers.append(ls)
             else:
                 layers.append(l)
         return layers
+
 
 class ResNetImagenet(nn.Module):
 
@@ -127,7 +127,7 @@ class ResNetImagenet(nn.Module):
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.relu = ReLuPCA(args,64) # nn.ReLU(inplace=True)
+        self.relu = ReLuPCA(args, 64)  # nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(args, block, 64, layers[0])
         self.layer2 = self._make_layer(args, block, 128, layers[1], stride=2)
@@ -190,13 +190,12 @@ class ResNetImagenet(nn.Module):
         return x
 
     def loadPreTrained(self):
-        self.load_state_dict(model_zoo.load_url(model_urls[self.name]),False)
-
+        self.load_state_dict(model_zoo.load_url(model_urls[self.name]), False)
 
     def buildLayersList(self):
         layersList = []
         for m in self._modules.values():
-            if isinstance(m,nn.Sequential):
+            if isinstance(m, nn.Sequential):
                 for ms in m._modules.values():
                     layersList.extend(ms.getLayers())
             else:
@@ -208,10 +207,9 @@ class ResNetImagenet(nn.Module):
     def buildReluPcaList(self):
         list = []
         for l in self.layersList:
-            if isinstance(l,ReLuPCA):
+            if isinstance(l, ReLuPCA):
                 list.append(l)
         return list
-
 
     def enableStatisticPhase(self):
         self.statsState = True
@@ -226,9 +224,10 @@ class ResNetImagenet(nn.Module):
             l.updateClampValGaus()
             l.updateClamp()
 
-        #We quantize first and last layer to 8 bits
+        # We quantize first and last layer to 8 bits
         self.ReLuPcaList[0].actBitwidth = 8
         self.ReLuPcaList[-1].actBitwidth = 8
+
 
 class ResNetCifar(nn.Module):
 
@@ -245,7 +244,7 @@ class ResNetCifar(nn.Module):
 
         self.conv = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(64)
-        self.relu =  ReLuPCA(args,64) # nn.ReLU(inplace=True)
+        self.relu = ReLuPCA(args, 64)  # nn.ReLU(inplace=True)
 
         self.layer1 = self._make_layer(args, block, fmaps[0], n, stride=1)
         self.layer2 = self._make_layer(args, block, fmaps[1], n, stride=2)
@@ -283,7 +282,7 @@ class ResNetCifar(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x,):
+    def forward(self, x, ):
 
         x = self.relu(self.bn(self.conv(x)))  # 32x32
 
@@ -298,7 +297,7 @@ class ResNetCifar(nn.Module):
 
     def loadPreTrained(self):
         preTrainedDir = './preTrained/' + self.name + '/' + self.dataset + '/ckpt.t7'
-        checkpoint =  torch.load(preTrainedDir)
+        checkpoint = torch.load(preTrainedDir)
         self.load_state_dict(checkpoint['net'])
 
     def buildLayersList(self):
@@ -312,10 +311,11 @@ class ResNetCifar(nn.Module):
                 layersList.append(m)
 
         return layersList
+
     def buildReluPcaList(self):
         list = []
         for l in self.layersList:
-            if isinstance(l,ReLuPCA):
+            if isinstance(l, ReLuPCA):
                 list.append(l)
         return list
 
@@ -330,28 +330,28 @@ class ResNetCifar(nn.Module):
             l.collectStats = False
             l.updateClampVal()
 
-        #We quantize first and last layer to 8 bits
+        # We quantize first and last layer to 8 bits
         self.ReLuPcaList[0].actBitwidth = 8
         self.ReLuPcaList[-1].actBitwidth = 8
 
-#=========== Cifar ResNet =============
+
+# =========== Cifar ResNet =============
 
 def ResNet20(args):
-    return ResNetCifar(depth = 20, args = args)
+    return ResNetCifar(depth=20, args=args)
 
 
 def ResNet56(args):
-    return ResNetCifar(depth = 56, args = args)
+    return ResNetCifar(depth=56, args=args)
 
-#=========== Imagenet ResNet =============
+
+# =========== Imagenet ResNet =============
 
 def ResNet18(args):
     model = ResNetImagenet(BasicBlock, [2, 2, 2, 2], args)
     return model
 
+
 def ResNet50(args):
     model = ResNetImagenet(Bottleneck, [3, 4, 6, 3], args)
     return model
-
-
-

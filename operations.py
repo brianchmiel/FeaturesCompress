@@ -4,6 +4,45 @@ import numpy as np
 import scipy.optimize as opt
 import torch
 import torch.nn as nn
+from tqdm import trange
+
+
+def optimal_matrix(cov):
+    tmp_u, _, _ = torch.svd(cov)
+    u = tmp_u.clone().requires_grad_()
+    optimizer = torch.optim.SGD([u], lr=0.01, momentum=0.9, weight_decay=0)
+    alpha = 0.01
+    beta = 0.1
+    for _ in trange(100):
+        optimizer.zero_grad()
+        s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u))).sum()
+        norm = torch.norm(u, p=1)
+        orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
+        loss = s #+ alpha * norm + beta * orth
+        loss.backward()
+        optimizer.step()
+    s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
+    # DEBUG
+    print(torch.norm(tmp_u-u).item(), torch.nonzero(u<1e-5).size(0), torch.nonzero(tmp_u<1e-5).size(0))
+    return u.clone(), s.clone() # TODO
+
+
+def get_projection_matrix(im, projType):
+    if projType == 'pca':
+        # covariance matrix
+        cov = torch.matmul(im, im.t()) / im.shape[1]
+        # svd
+        u, s, _ = torch.svd(cov)
+    elif projType == 'eye':
+        u, s = torch.eye(im.shape[0]), torch.ones(im.shape[0])
+    elif projType == 'optim':
+        # covariance matrix
+        cov = torch.matmul(im, im.t()) / im.shape[1]
+        # do optimization
+        u, s = optimal_matrix(cov)
+    else:
+        raise ValueError("Wrong projection type")
+    return u, s
 
 
 class ReLuPCA(nn.Module):
@@ -17,16 +56,14 @@ class ReLuPCA(nn.Module):
         self.projType = args.projType
         self.actBitwidth = args.actBitwidth
         self.perChQ = args.perCh
-        if args.perCh:
-            clampSize = ch
-        else:
-            clampSize = 1
-        self.clampVal = torch.zeros(clampSize).cuda()  # torch.zeros(self.featureSz)
-        self.clampValLap = torch.zeros(clampSize).cuda()  # torch.zeros(self.featureSz)
-        self.clampValGaus = torch.zeros(clampSize).cuda()  # torch.zeros(self.featureSz)
-        self.lapB = torch.zeros(clampSize).cuda()  # torch.zeros(self.featureSz) #b of laplace distribution
-        self.gauStd = torch.zeros(clampSize).cuda()
-        self.numElems = torch.zeros(clampSize).cuda()  # torch.zeros(self.featureSz)
+        clampSize = ch if self.perChQ else 1
+
+        self.clampVal = torch.zeros(clampSize)
+        self.clampValLap = torch.zeros(clampSize)
+        self.clampValGaus = torch.zeros(clampSize)
+        self.lapB = torch.zeros(clampSize)  # b of laplace distribution
+        self.gauStd = torch.zeros(clampSize)
+        self.numElems = torch.zeros(clampSize)
 
         self.collectStats = False
 
@@ -48,14 +85,7 @@ class ReLuPCA(nn.Module):
 
             # Calculate projection matrix if needed
             if self.collectStats:
-                if self.projType == 'pca':
-                    # #covariance matrix
-                    cov = torch.matmul(im, im.t()) / im.shape[1]
-                    # # svd
-                    self.u, self.s, v = torch.svd(cov)
-                if self.projType == 'eye':
-                    self.u = torch.eye(im.shape[0]).cuda()
-                    self.s = torch.ones(im.shape[0]).cuda()
+                self.u, self.s = get_projection_matrix(im, self.projType)
 
             # projection
             imProj = torch.matmul(self.u.t(), im)
@@ -109,7 +139,7 @@ class ReLuPCA(nn.Module):
                     imProjQ = act_quant(imProjQ, max=dynMax, min=dynMin,
                                         bitwidth=self.actBitwidth)
 
-            # read from memory , project back and centering back
+            # read from memory, project back and centering back
             # imProjQ = (torch.matmul(self.u, imProjQ * normStd) + mn).t()
             imProjQ = torch.matmul(self.u, imProjQ)
 
