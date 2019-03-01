@@ -74,19 +74,19 @@ class Run:
                 correct += predicted.eq(targets).sum().item()
 
                 self.logging.info('step: {} / {} : Loss: {:.3f}  ' '| '
-                                      'Acc: {:.3f}% ({}/{})'
-                                      .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1),
-                                              100. * correct / total, correct,
-                                              total))
+                                  'Acc: {:.3f}% ({}/{})'
+                                  .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1),
+                                          100. * correct / total, correct,
+                                          total))
 
         # Save checkpoint.
         acc = 100. * correct / total
         if acc > self.best_acc:
             self.logging.info('Saving..')
             state = {
-                    'net': self.model.state_dict(),
-                    'acc': acc,
-                    'epoch': epoch,
+                'net': self.model.state_dict(),
+                'acc': acc,
+                'epoch': epoch,
             }
             if not os.path.isdir('results'):
                 os.mkdir('results')

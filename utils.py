@@ -120,7 +120,7 @@ def load_data(args, logger):
     sample = SubsetRandomSampler(np.linspace(rndIdx, rndIdx + statsBatchSize, statsBatchSize + 1, dtype=np.int)[:-1])
 
     statloader = torch.utils.data.DataLoader(test_data, batch_size=statsBatchSize, shuffle=False, num_workers=2,
-                                             sampler=sample)
+                                             sampler=sample) # TODO
 
     return trainloader, testloader, statloader
 
