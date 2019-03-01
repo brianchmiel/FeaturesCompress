@@ -162,10 +162,13 @@ class ReLuPCA(nn.Module):
                     lambda x: mse_gaussian(x, sigma=self.gauStd.item(), num_bits=self.actBitwidth)).x
 
 
-#taken from https://github.com/submission2019/cnn-quantization/blob/master/optimal_alpha.ipynb
+# taken from https://github.com/submission2019/cnn-quantization/blob/master/optimal_alpha.ipynb
 def mse_laplace(alpha, b, num_bits):
-  #  return 2 * (b ** 2) * np.exp(-alpha / b) + ((alpha ** 2) / (3 * 2 ** (2 * num_bits)))
-    return (b ** 2) * np.exp(-alpha / b) + ((alpha ** 2) / (24 * 2 ** (2 * num_bits)))
+    #  return 2 * (b ** 2) * np.exp(-alpha / b) + ((alpha ** 2) / (3 * 2 ** (2 * num_bits)))
+    exp_val = 1e300 if -alpha / b > 690 else np.exp(-alpha / b)  # prevent overflow
+    res = (b ** 2) * exp_val + ((alpha ** 2) / (24 * 2 ** (2 * num_bits)))
+    return res
+
 
 def mse_gaussian(alpha, sigma, num_bits):
     clipping_err = (sigma ** 2 + (alpha ** 2)) * (1 - math.erf(alpha / (sigma * np.sqrt(2.0)))) - \
