@@ -11,7 +11,7 @@ def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
     u = tmp_u.clone().requires_grad_()
     optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
-    alpha = 1
+    alpha = 0.1
     beta = 100
     for _ in trange(10000):
         optimizer.zero_grad()
@@ -20,7 +20,7 @@ def optimal_matrix(cov):
         norm = torch.norm(u, p=1)
         orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
         # print(orth)
-        loss = s  + beta * orth + alpha * norm
+        loss = s + beta * orth + alpha * norm
         loss.backward()
         optimizer.step()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
