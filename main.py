@@ -41,7 +41,7 @@ def parseArgs():
 
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
     parser.add_argument('--actBitwidth', default=32, type=int, metavar='N',
-                        help='Quantization activation bitwidth (default: 5)')
+                        help='Quantization activation bitwidth (default: 32)')
     parser.add_argument('--model', '-a', metavar='MODEL', choices=modelNames,
                         help='model architecture: ' + ' | '.join(modelNames))
     parser.add_argument('--epochs', type=int, default=200, help='num of training epochs ')

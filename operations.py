@@ -11,7 +11,7 @@ def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
     u = tmp_u.clone().requires_grad_()
     optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
-    alpha = 0.1
+    alpha = 0.3  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
     beta = 100
     for _ in trange(10000):
         optimizer.zero_grad()
@@ -25,7 +25,7 @@ def optimal_matrix(cov):
         optimizer.step()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
     # DEBUG
-    print(torch.norm(tmp_u - u).item(), torch.nonzero(u < 1e-5).size(0), torch.nonzero(tmp_u < 1e-5).size(0))
+    print(torch.norm(tmp_u - u).item(), u.size(), torch.nonzero(u < 1e-5).size(0), torch.nonzero(tmp_u < 1e-5).size(0))
     return u.clone(), s.clone()  # TODO
 
 
