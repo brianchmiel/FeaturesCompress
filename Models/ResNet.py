@@ -6,7 +6,8 @@ from operations import ReLuPCA
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth'
+    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
 
 
@@ -354,4 +355,9 @@ def ResNet18(args):
 
 def ResNet50(args):
     model = ResNetImagenet(Bottleneck, [3, 4, 6, 3], args)
+    return model
+
+
+def ResNet152(args):
+    model = ResNetImagenet(Bottleneck, [3, 8, 36, 3], args)
     return model

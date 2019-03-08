@@ -141,11 +141,11 @@ if __name__ == '__main__':
 
     # collect statistics
     if args.project:
-        logging.info('Starting collect statistics')
-        model.enableStatisticPhase()
-        run.collectStats(args, statloader, 0)
-        model.disableStatisticPhase()
-        logging.info('Finish collect statistics')
+        # logging.info('Starting collect statistics')
+        # model.enableStatisticPhase()
+        # run.collectStats(args, statloader, 0)
+        # model.disableStatisticPhase()
+        # logging.info('Finish collect statistics')
         logging.info('Run Projection on inference')
         run.runTest(args, testLoader, 0)
     else:

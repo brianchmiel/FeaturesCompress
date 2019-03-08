@@ -4,28 +4,40 @@ import numpy as np
 import scipy.optimize as opt
 import torch
 import torch.nn as nn
-from tqdm import trange
+from tqdm import trange, tqdm
 
 
 def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
-    u = tmp_u.clone().requires_grad_()
-    optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
-    alpha = 0.3  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
-    beta = 100
-    for _ in trange(10000):
-        optimizer.zero_grad()
-        d = torch.matmul(u.transpose(0, 1), torch.matmul(cov, u))
-        s = torch.diag(d).sum()
-        norm = torch.norm(u, p=1)
-        orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
-        # print(orth)
-        loss = s + beta * orth + alpha * norm
-        loss.backward()
-        optimizer.step()
+
+    with torch.set_grad_enabled(True):
+        u = tmp_u.clone().requires_grad_()
+        # (tmp_u.clone()+torch.eye(tmp_u.size(0)).to(tmp_u)).requires_grad_()
+        # (tmp_u.clone()+torch.randn_like(tmp_u)).requires_grad_()
+        # torch.eye(tmp_u.size(0)).to(tmp_u).requires_grad_()
+        # (tmp_u.clone()+torch.eye(tmp_u.size(0)).to(tmp_u)).requires_grad_()
+        # torch.randn_like(tmp_u).requires_grad_()
+        optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
+        alpha = 0.1  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
+        beta = 100
+        for _ in trange(10000):
+            optimizer.zero_grad()
+            d = torch.matmul(u.transpose(0, 1), torch.matmul(cov, u))
+            s = torch.diag(d).sum()
+            norm = torch.norm(u, p=1)
+            orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
+            # print(orth)
+            loss = beta * orth + s + alpha * norm
+            loss.backward()
+            optimizer.step()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
     # DEBUG
-    print(torch.norm(tmp_u - u).item(), u.size(), torch.nonzero(u < 1e-5).size(0), torch.nonzero(tmp_u < 1e-5).size(0))
+    zu = torch.nonzero(u < 1e-5).size(0)
+    ztmpu = torch.nonzero(tmp_u < 1e-5).size(0)
+    us = u.size(0) * u.size(1)
+    tqdm.write("Distance {:.4f}. "
+               "Learned zeros: {}/{}({:.4f}). "
+               "PCA zeros: {}/{}({:.4f}).".format(torch.norm(tmp_u - u).item(), zu, us, zu / us, ztmpu, us, ztmpu / us))
     return u.clone(), s.clone()  # TODO
 
 
@@ -50,146 +62,85 @@ def get_projection_matrix(im, projType):
 class ReLuPCA(nn.Module):
     def __init__(self, args, ch):
         super(ReLuPCA, self).__init__()
-        self.eigenVar = args.EigenVar
-        self.microBlockSz = args.MicroBlockSz
-        self.channels = ch
-        self.clipType = args.clipType
-        self.project = args.project
-        self.projType = args.projType
+        # self.channels = ch
         self.actBitwidth = args.actBitwidth
-        self.perChQ = args.perCh
-        clampSize = ch if self.perChQ else 1
+        self.projType = args.projType
 
-        self.clampVal = torch.zeros(clampSize)
-        self.clampValLap = torch.zeros(clampSize)
-        self.clampValGaus = torch.zeros(clampSize)
-        self.lapB = torch.zeros(clampSize)  # b of laplace distribution
-        self.gauStd = torch.zeros(clampSize)
-        self.numElems = torch.zeros(clampSize)
+        # self.clampVal = None #torch.zeros(ch)
+        # self.lapB = None#torch.zeros(ch)  # b of laplace distribution
+        # self.numElems = None#torch.zeros(ch)
 
-        self.collectStats = False
+        self.collectStats = True
 
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, input):
-        if self.eigenVar == 1.0:
-            assert (input.shape[1] == self.channels)
+        self.channels = input.shape[1]
+        if not hasattr(self, 'clampVal'):
+            # self.clampVal = torch.zeros(self.channels)
+            self.register_buffer('clampVal', torch.zeros(self.channels))
+        if not hasattr(self, 'lapB'):
+            # self.lapB = torch.zeros(self.channels)
+            self.register_buffer('lapB', torch.zeros(self.channels))
+        if not hasattr(self, 'numElems'):
+            # self.numElems = torch.zeros(self.channels)
+            self.register_buffer('numElems', torch.zeros(self.channels))
         input = self.relu(input)
 
-        if self.project:
-            N, C, H, W = input.shape  # N x C x H x W
-            im = input.detach().transpose(0, 1).contiguous()  # C x N x H x W
-            im = im.view(im.shape[0], -1)  # C x (NxHxW)
+        N, C, H, W = input.shape  # N x C x H x W
+        im = input.detach().transpose(0, 1).contiguous()  # C x N x H x W
+        im = im.view(im.shape[0], -1)  # C x (NxHxW)
 
-            mn = torch.mean(im, dim=1, keepdim=True)
-            # Centering the data
-            im = (im - mn)
+        mn = torch.mean(im, dim=1, keepdim=True)
+        # Centering the data
+        im = (im - mn)
 
-            # Calculate projection matrix if needed
-            if self.collectStats:
-                self.u, self.s = get_projection_matrix(im, self.projType)
+        # Calculate projection matrix if needed
+        if self.collectStats:
+            self.u, self.s = get_projection_matrix(im, self.projType)
 
-            # projection
-            imProj = torch.matmul(self.u.t(), im)
+        # projection
+        imProj = torch.matmul(self.u.t(), im)
 
-            if self.projType == 'pca' and self.eigenVar < 1.0:
-                if self.collectStats:
-                    # remove part of new base
-                    # find index where eigenvalues are more important
-                    sRatio = torch.cumsum(self.s, 0) / torch.sum(self.s)
-                    self.cutIdx = (sRatio >= self.eigenVar).nonzero()[0]
-                    # throw unimportant eigenvector
-                    self.u = self.u[:, :self.cutIdx]
-                    self.s = self.s[:self.cutIdx]
-                    self.channels = self.cutIdx
-                    imProj = imProj[:self.cutIdx, :]
-                else:
-                    imProj = imProj[:self.cutIdx, :]
+        if self.collectStats:
+            # collect b of laplacian distribution
+            for i in range(0, self.channels):
+                self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
+                self.numElems[i] += (imProj.shape[1])
+            self.updateClamp()
+        else:
+            # quantize and send to memory
+            for i in range(0, self.channels):
+                clampMax = self.clampVal[i].item()
+                clampMin = -1 * self.clampVal[i].item()
+                imProj[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
+                dynMax = torch.max(imProj[i, :])
+                dynMin = torch.min(imProj[i, :])
 
-            # make it to have std = 1
-            # normStd = torch.sqrt(self.s).unsqueeze(1)
-            # imProj = imProj / normStd
-            imProjQ = imProj.clone()
-            if self.collectStats:
-                # collect b of laplacian distribution
-                if self.perChQ:
-                    for i in range(0, self.channels):
-                        self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
-                        self.gauStd[i] += torch.sum((imProj[i, :]) ** 2)
-                        self.numElems[i] += (imProj.shape[1])
-                else:
-                    self.lapB += torch.sum(torch.abs(imProj))
-                    self.gauStd += torch.sum((imProj) ** 2)
-                    self.numElems += (imProj.shape[1] * imProj.shape[0])
-            else:
-                # quantize and send to memory
-                if self.perChQ:
-                    for i in range(0, self.channels):
-                        clampMax = self.clampVal[i].item()
-                        clampMin = -1 * self.clampVal[i].item()
-                        imProjQ[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
-                        dynMax = torch.max(imProjQ[i, :])
-                        dynMin = torch.min(imProjQ[i, :])
-                        imProjQ[i, :] = act_quant(imProjQ[i, :], max=dynMax, min=dynMin, bitwidth=self.actBitwidth)
+                if self.actBitwidth < 17:
+                    imProj[i, :] = act_quant(imProj[i, :], max=dynMax, min=dynMin, bitwidth=self.actBitwidth)
 
-                else:
-                    clampMax = self.clampVal.item()
-                    clampMin = -1 * self.clampVal.item()
-                    imProjQ = torch.clamp(imProj, max=clampMax, min=clampMin)
-                    dynMax = torch.max(imProjQ)
-                    dynMin = torch.min(imProjQ)
-                    imProjQ = act_quant(imProjQ, max=dynMax, min=dynMin,
-                                        bitwidth=self.actBitwidth)
+        imProj = torch.matmul(self.u, imProj)
 
-            # read from memory, project back and centering back
-            # imProjQ = (torch.matmul(self.u, imProjQ * normStd) + mn).t()
-            imProjQ = torch.matmul(self.u, imProjQ)
+        # Bias Correction
+        imProj = (imProj - torch.mean(imProj, dim=1, keepdim=True))
 
-            # Bias Correction
-            imProjQ = (imProjQ - torch.mean(imProjQ, dim=1, keepdim=True))
+        # return original mean
+        imProj = (imProj + mn)
+        #print(torch.mean(imProj).item(), torch.min(imProj).item(), torch.max(imProj).item())
 
-            # return original mean
-            imProjQ = (imProjQ + mn)
-
-            input = imProjQ.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
-
+        input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
+        self.collectStats = False
         return input
 
     def updateClamp(self):
-        if self.clipType == 'laplace':
-            self.clampVal = self.clampValLap
-        else:
-            self.clampVal = self.clampValGaus
-
-    def updateClampValLap(self):
-        if self.perChQ:
-            for i in range(0, self.channels):
-                self.lapB[i] = (self.lapB[i] / self.numElems[i])
-                if self.lapB[i] > 0:
-                    self.clampValLap[i] = opt.minimize_scalar(
-                        lambda x: mse_laplace(x, b=self.lapB[i].item(), num_bits=self.actBitwidth)).x
-                else:
-                    self.clampValLap[i] = 0
-
-        else:
-            self.lapB = (self.lapB / self.numElems)
-            self.clampValLap = opt.minimize_scalar(
-                lambda x: mse_laplace(x, b=self.lapB.item(), num_bits=self.actBitwidth)).x
-
-    def updateClampValGaus(self):
-        if self.perChQ:
-            for i in range(0, self.channels):
-                self.gauStd[i] = torch.sqrt((self.gauStd[i]) / (self.numElems[i] - 1))
-                if self.gauStd[i] > 0:
-                    self.clampValGaus[i] = opt.minimize_scalar(
-                        lambda x: mse_gaussian(x, sigma=self.gauStd[i].item(),
-                                               num_bits=self.actBitwidth)).x
-                else:
-                    self.clampValGaus[i] = 0
-        else:
-            self.gauStd = torch.sqrt((self.gauStd) / (self.numElems - 1))
-            self.clampValGaus = opt.minimize_scalar(
-                lambda x: mse_gaussian(x, sigma=self.gauStd.item(), num_bits=self.actBitwidth)).x
+        for i in range(0, self.channels):
+            self.lapB[i] = (self.lapB[i] / self.numElems[i])
+            if self.lapB[i] > 0:
+                self.clampVal[i] = opt.minimize_scalar(
+                    lambda x: mse_laplace(x, b=self.lapB[i].item(), num_bits=self.actBitwidth)).x
+            else:
+                self.clampVal[i] = 0
 
 
 # taken from https://github.com/submission2019/cnn-quantization/blob/master/optimal_alpha.ipynb
