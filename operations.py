@@ -118,8 +118,8 @@ class ReLuPCA(nn.Module):
             else:
                 raise ValueError("Wrong stats type")
             self.updateClamp()
-        # quantize and send to memory
 
+        # quantize and send to memory
         for i in range(0, self.channels):
             clampMax = self.clampVal[i].item()
             clampMin = -self.clampVal[i].item()
@@ -131,7 +131,9 @@ class ReLuPCA(nn.Module):
                 imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
                                                            bitwidth=self.actBitwidth)
 
-        print(shannon_entropy(imProj).item())
+        self.bit_per_entry= shannon_entropy(imProj).item()
+        self.bit_count =self.bit_per_entry*imProj.numel()
+        #print(self.bit_per_entry, self.bit_count)
 
         if self.actBitwidth < 17:
             for i in range(0, self.channels):

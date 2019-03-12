@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import torch
 import tqdm
 
@@ -47,7 +48,7 @@ class Run:
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            self.logging.info('step: {} / {} : Loss: {:.3f} ' '| '
+            self.logging.info('step: {} / {} : Loss: {:.3f} | '
                               'Acc: {:.3f}% ({}/{})'.format(batch_idx, len(trainLoader),
                                                             train_loss / (batch_idx + 1),
                                                             100. * correct / total, correct, total, ))
@@ -64,7 +65,7 @@ class Run:
     def runTest(self, args, testLoader, epoch):
         self.model.eval()
         # crossEntrTotalLoss, compressTotalLoss, test_loss, correct, total = 0, 0, 0, 0, 0
-        test_loss, correct, total = 0, 0, 0
+        test_loss, correct, total, entropy = 0, 0, 0, 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
                 inputs, targets = inputs.cuda(), targets.cuda()
@@ -74,12 +75,12 @@ class Run:
                 _, predicted = out.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
-
-                self.logging.info('step: {} / {} : Loss: {:.3f}  ' '| '
+                ent = np.array([x.bit_count for x in self.model.modules() if hasattr(x, "bit_count")])
+                entropy += np.sum(ent)
+                self.logging.info('step: {} / {} : Loss: {:.3f}  | ent: {:.3f} Mbit | '
                                   'Acc: {:.3f}% ({}/{})'
                                   .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1),
-                                          100. * correct / total, correct,
-                                          total))
+                                          entropy / 1e6 / (batch_idx + 1), 100. * correct / total, correct, total))
 
         # Save checkpoint.
         acc = 100. * correct / total
