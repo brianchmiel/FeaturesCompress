@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from tqdm import trange, tqdm
 
+from entropy import shannon_entropy
+
 
 def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
@@ -32,8 +34,8 @@ def optimal_matrix(cov):
             optimizer.step()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
     # DEBUG
-    zu = torch.nonzero(u < 1e-5).size(0)
-    ztmpu = torch.nonzero(tmp_u < 1e-5).size(0)
+    zu = torch.nonzero(u < 1e-8).size(0)
+    ztmpu = torch.nonzero(tmp_u < 1e-8).size(0)
     us = u.size(0) * u.size(1)
     tqdm.write("Distance {:.4f}. "
                "Learned zeros: {}/{}({:.4f}). "
@@ -65,10 +67,7 @@ class ReLuPCA(nn.Module):
         # self.channels = ch
         self.actBitwidth = args.actBitwidth
         self.projType = args.projType
-
-        # self.clampVal = None #torch.zeros(ch)
-        # self.lapB = None#torch.zeros(ch)  # b of laplace distribution
-        # self.numElems = None#torch.zeros(ch)
+        self.per_channel = args.perCh
 
         self.collectStats = True
 
@@ -77,13 +76,10 @@ class ReLuPCA(nn.Module):
     def forward(self, input):
         self.channels = input.shape[1]
         if not hasattr(self, 'clampVal'):
-            # self.clampVal = torch.zeros(self.channels)
             self.register_buffer('clampVal', torch.zeros(self.channels))
         if not hasattr(self, 'lapB'):
-            # self.lapB = torch.zeros(self.channels)
             self.register_buffer('lapB', torch.zeros(self.channels))
         if not hasattr(self, 'numElems'):
-            # self.numElems = torch.zeros(self.channels)
             self.register_buffer('numElems', torch.zeros(self.channels))
         input = self.relu(input)
 
@@ -102,24 +98,36 @@ class ReLuPCA(nn.Module):
         # projection
         imProj = torch.matmul(self.u.t(), im)
 
+        mult = torch.zeros(imProj.size(0)).to(imProj)
+        add = torch.zeros(imProj.size(0)).to(imProj)
         if self.collectStats:
             # collect b of laplacian distribution
-            for i in range(0, self.channels):
-                self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
-                self.numElems[i] += (imProj.shape[1])
+            if self.per_channel:
+                for i in range(0, self.channels):
+                    self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
+                    self.numElems[i] += (imProj.shape[1])
+            else:
+                self.lapB += torch.sum(torch.abs(imProj[0, :]))
+                self.numElems += (imProj.shape[1])
             self.updateClamp()
-        else:
-            # quantize and send to memory
+        # quantize and send to memory
+
+        for i in range(0, self.channels):
+            clampMax = self.clampVal[i].item()
+            clampMin = -self.clampVal[i].item()
+            imProj[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
+            dynMax = torch.max(imProj[i, :])
+            dynMin = torch.min(imProj[i, :])
+
+            if self.actBitwidth < 17:
+                imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
+                                                           bitwidth=self.actBitwidth)
+
+        print(shannon_entropy(imProj).item())
+
+        if self.actBitwidth < 17:
             for i in range(0, self.channels):
-                clampMax = self.clampVal[i].item()
-                clampMin = -1 * self.clampVal[i].item()
-                imProj[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
-                dynMax = torch.max(imProj[i, :])
-                dynMin = torch.min(imProj[i, :])
-
-                if self.actBitwidth < 17:
-                    imProj[i, :] = act_quant(imProj[i, :], max=dynMax, min=dynMin, bitwidth=self.actBitwidth)
-
+                imProj[i, :] = imProj[i, :] * mult[i] + add[i]
         imProj = torch.matmul(self.u, imProj)
 
         # Bias Correction
@@ -127,7 +135,6 @@ class ReLuPCA(nn.Module):
 
         # return original mean
         imProj = (imProj + mn)
-        #print(torch.mean(imProj).item(), torch.min(imProj).item(), torch.max(imProj).item())
 
         input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
         self.collectStats = False
@@ -156,6 +163,16 @@ def mse_gaussian(alpha, sigma, num_bits):
                    np.sqrt(2.0 / np.pi) * alpha * sigma * (np.e ** ((-1) * (0.5 * (alpha ** 2)) / sigma ** 2))
     quant_err = (alpha ** 2) / (3 * (2 ** (2 * num_bits)))
     return clipping_err + quant_err
+
+
+def part_quant(x, max, min, bitwidth):
+    if max != min:
+        act_scale = (2 ** bitwidth - 1) / (max - min)
+        q_x = Round.apply((x - min) * act_scale)
+        return q_x, 1 / act_scale, min
+    else:
+        q_x = x
+        return q_x, 1, 0
 
 
 def act_quant(x, max, min, bitwidth):

@@ -110,7 +110,7 @@ def load_data(args, logger):
 
     # testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
     # sample = SubsetRandomSampler(np.linspace(0,40000,40000+1,dtype = np.int)[:-1])
-    testloader = torch.utils.data.DataLoader(test_data, batch_size=args.batch, shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(test_data, batch_size=args.batch, shuffle=True, num_workers=2)
 
     # statsdata = get_dataset(args.dataset, train=False, transform=transform['test'], datasets_path=args.data)
 

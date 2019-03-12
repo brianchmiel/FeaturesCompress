@@ -52,12 +52,14 @@ class Run:
                                                             train_loss / (batch_idx + 1),
                                                             100. * correct / total, correct, total, ))
 
-    def collectStats(self, args, testLoader, epoch):
+    def collectStats(self, testLoader):
         self.model.eval()
-        # crossEntrTotalLoss, compressTotalLoss, test_loss, correct, total = 0, 0, 0, 0, 0
-        for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
-            inputs, targets = inputs.cuda(), targets.cuda()
-            self.model(inputs)
+
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
+                inputs, targets = inputs.cuda(), targets.cuda()
+                out = self.model(inputs)
+                break
 
     def runTest(self, args, testLoader, epoch):
         self.model.eval()
