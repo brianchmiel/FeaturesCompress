@@ -50,7 +50,7 @@ def get_projection_matrix(im, projType):
         # svd
         u, s, _ = torch.svd(cov)
     elif projType == 'eye':
-        u, s = torch.eye(im.shape[0]), torch.ones(im.shape[0])
+        u, s = torch.eye(im.shape[0]).to(im), torch.ones(im.shape[0]).to(im)
     elif projType == 'optim':
         # covariance matrix
         cov = torch.matmul(im, im.t()) / im.shape[1]
@@ -64,10 +64,13 @@ def get_projection_matrix(im, projType):
 class ReLuPCA(nn.Module):
     def __init__(self, args, ch):
         super(ReLuPCA, self).__init__()
-        # self.channels = ch
         self.actBitwidth = args.actBitwidth
         self.projType = args.projType
         self.per_channel = args.perCh
+        if self.projType == 'eye':
+            self.stats = 'all' if not self.per_channel else 'channel'
+        else:
+            self.stats = 'first' if not self.per_channel else 'channel'
 
         self.collectStats = True
 
@@ -102,13 +105,18 @@ class ReLuPCA(nn.Module):
         add = torch.zeros(imProj.size(0)).to(imProj)
         if self.collectStats:
             # collect b of laplacian distribution
-            if self.per_channel:
+            if self.stats == 'channel':
                 for i in range(0, self.channels):
                     self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
                     self.numElems[i] += (imProj.shape[1])
-            else:
+            elif self.stats == 'all':
                 self.lapB += torch.sum(torch.abs(imProj[0, :]))
                 self.numElems += (imProj.shape[1])
+            elif self.stats == 'first':
+                self.lapB += torch.sum(torch.abs(imProj))
+                self.numElems += (imProj.numel())
+            else:
+                raise ValueError("Wrong stats type")
             self.updateClamp()
         # quantize and send to memory
 
