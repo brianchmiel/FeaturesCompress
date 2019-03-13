@@ -137,8 +137,9 @@ class ReLuPCA(nn.Module):
                 imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
                                                            bitwidth=self.actBitwidth)
 
+        self.act_size = imProj.numel()
         self.bit_per_entry = shannon_entropy(imProj).item()
-        self.bit_count = self.bit_per_entry * imProj.numel()
+        self.bit_count = self.bit_per_entry * self.act_size
         # print(imProj[-1, :].numel(), imProj[-1, :].nonzero().numel())
         # print(self.bit_per_entry, self.bit_count)
 

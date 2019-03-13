@@ -79,9 +79,11 @@ class Run:
                 entropy += np.sum(ent)
                 self.logging.info('step: {} / {} : Loss: {:.3f}  | ent: {:.3f} Mbit | '
                                   'Acc: {:.3f}% ({}/{})'
-                                  .format(batch_idx, len(testLoader), test_loss / (batch_idx + 1),
+                                  .format(batch_idx + 1, len(testLoader), test_loss / (batch_idx + 1),
                                           entropy / 1e6 / (batch_idx + 1), 100. * correct / total, correct, total))
-
+        act_count = np.sum(np.array([x.act_size for x in self.model.modules() if hasattr(x, "act_size")]))
+        self.logging.info('Activation count: {}. Average entropy: {:.4f}'
+                          .format(act_count, entropy / len(testLoader) / act_count))
         # Save checkpoint.
         acc = 100. * correct / total
         if acc > self.best_acc:
