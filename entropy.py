@@ -57,5 +57,5 @@ def shannon_entropy(image, base=2):
     .. [2] https://en.wiktionary.org/wiki/Shannon_entropy
     """
 
-    counts = torch.bincount(image.long().flatten())
+    counts = torch.bincount(torch.round(image).long().flatten())
     return entropy(counts, base=base)

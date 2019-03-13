@@ -57,7 +57,7 @@ class Run:
         self.model.eval()
 
         with torch.no_grad():
-            for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
+            for batch_idx, (inputs, targets) in enumerate(testLoader):
                 inputs, targets = inputs.cuda(), targets.cuda()
                 out = self.model(inputs)
                 break

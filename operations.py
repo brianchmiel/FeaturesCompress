@@ -108,13 +108,13 @@ class ReLuPCA(nn.Module):
             if self.stats == 'channel':
                 for i in range(0, self.channels):
                     self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
-                    self.numElems[i] += (imProj.shape[1])
-            elif self.stats == 'all':
-                self.lapB += torch.sum(torch.abs(imProj[0, :]))
-                self.numElems += (imProj.shape[1])
+                    self.numElems[i] += imProj.shape[1]
             elif self.stats == 'first':
+                self.lapB += torch.sum(torch.abs(imProj[0, :]))
+                self.numElems += imProj.shape[1]
+            elif self.stats == 'all':
                 self.lapB += torch.sum(torch.abs(imProj))
-                self.numElems += (imProj.numel())
+                self.numElems += imProj.numel()
             else:
                 raise ValueError("Wrong stats type")
             self.updateClamp()
@@ -124,16 +124,23 @@ class ReLuPCA(nn.Module):
             clampMax = self.clampVal[i].item()
             clampMin = -self.clampVal[i].item()
             imProj[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
-            dynMax = torch.max(imProj[i, :])
-            dynMin = torch.min(imProj[i, :])
+
+        if self.stats == 'first' or self.stats == 'all':
+            dynMax = torch.max(imProj)
+            dynMin = torch.min(imProj)
+        for i in range(0, self.channels):
+            if self.stats == 'channel':
+                dynMax = torch.max(imProj[i, :])
+                dynMin = torch.min(imProj[i, :])
 
             if self.actBitwidth < 17:
                 imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
                                                            bitwidth=self.actBitwidth)
 
-        self.bit_per_entry= shannon_entropy(imProj).item()
-        self.bit_count =self.bit_per_entry*imProj.numel()
-        #print(self.bit_per_entry, self.bit_count)
+        self.bit_per_entry = shannon_entropy(imProj).item()
+        self.bit_count = self.bit_per_entry * imProj.numel()
+        # print(imProj[-1, :].numel(), imProj[-1, :].nonzero().numel())
+        # print(self.bit_per_entry, self.bit_count)
 
         if self.actBitwidth < 17:
             for i in range(0, self.channels):
@@ -141,7 +148,7 @@ class ReLuPCA(nn.Module):
         imProj = torch.matmul(self.u, imProj)
 
         # Bias Correction
-        imProj = (imProj - torch.mean(imProj, dim=1, keepdim=True))
+        imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
 
         # return original mean
         imProj = (imProj + mn)
@@ -177,7 +184,7 @@ def mse_gaussian(alpha, sigma, num_bits):
 
 def part_quant(x, max, min, bitwidth):
     if max != min:
-        act_scale = (2 ** bitwidth - 1) / (max - min)
+        act_scale = (2 ** bitwidth - 2) / (max - min)
         q_x = Round.apply((x - min) * act_scale)
         return q_x, 1 / act_scale, min
     else:
@@ -197,7 +204,7 @@ def act_quant(x, max, min, bitwidth):
 class Round(torch.autograd.Function):
     @staticmethod
     def forward(self, x):
-        round = (x).round()
+        round = x.round()
         return round.to(x.device)
 
     @staticmethod
