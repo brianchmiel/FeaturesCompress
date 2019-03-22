@@ -8,38 +8,49 @@ from tqdm import trange, tqdm
 
 from entropy import shannon_entropy
 
+# TODO
+eps = 1e-6
+reps = 1e-6
+
+
+def small(x):
+    return torch.abs(x) < reps * torch.max(torch.abs(x))
+
 
 def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
+    n = torch.norm(tmp_u, p=1)
+    tmp_u = tmp_u / n  # normalize to prevent divergence and make distance meaningful
+    us = tmp_u.size(0) * tmp_u.size(1)
+    ztmpu = torch.nonzero(small(tmp_u)).size(0)
 
     with torch.set_grad_enabled(True):
         u = tmp_u.clone().requires_grad_()
-        # (tmp_u.clone()+torch.eye(tmp_u.size(0)).to(tmp_u)).requires_grad_()
-        # (tmp_u.clone()+torch.randn_like(tmp_u)).requires_grad_()
-        # torch.eye(tmp_u.size(0)).to(tmp_u).requires_grad_()
-        # (tmp_u.clone()+torch.eye(tmp_u.size(0)).to(tmp_u)).requires_grad_()
-        # torch.randn_like(tmp_u).requires_grad_()
         optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
-        alpha = 0.1  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
-        beta = 100
+        alpha = 1  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
+        beta = 10
         for _ in trange(10000):
             optimizer.zero_grad()
             d = torch.matmul(u.transpose(0, 1), torch.matmul(cov, u))
             s = torch.diag(d).sum()
             norm = torch.norm(u, p=1)
             orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
-            # print(orth)
-            loss = beta * orth + s + alpha * norm
+            loss = beta * orth + s  # + alpha * norm
+            assert not torch.isnan(loss)
             loss.backward()
             optimizer.step()
+    u = tmp_u.clone()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
     # DEBUG
-    zu = torch.nonzero(u < 1e-8).size(0)
-    ztmpu = torch.nonzero(tmp_u < 1e-8).size(0)
-    us = u.size(0) * u.size(1)
+    zu = torch.nonzero(small(u)).size(0)
+    u[small(u)] = 0
+    u = u * n  # renormalize
+    tmp_u = tmp_u * n
     tqdm.write("Distance {:.4f}. "
                "Learned zeros: {}/{}({:.4f}). "
-               "PCA zeros: {}/{}({:.4f}).".format(torch.norm(tmp_u - u).item(), zu, us, zu / us, ztmpu, us, ztmpu / us))
+               "PCA zeros: {}/{}({:.4f}).".format(torch.norm(tmp_u - u).item(),
+                                                  zu, us, zu / us,
+                                                  ztmpu, us, ztmpu / us))
     return u.clone(), s.clone()  # TODO
 
 
@@ -73,7 +84,7 @@ class ReLuPCA(nn.Module):
             self.stats = 'first' if not self.per_channel else 'channel'
 
         self.collectStats = True
-
+        self.bit_count = None
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, input):
@@ -92,7 +103,7 @@ class ReLuPCA(nn.Module):
 
         mn = torch.mean(im, dim=1, keepdim=True)
         # Centering the data
-        im = (im - mn)
+        im = im - mn
 
         # Calculate projection matrix if needed
         if self.collectStats:
@@ -133,7 +144,7 @@ class ReLuPCA(nn.Module):
                 dynMax = torch.max(imProj[i, :])
                 dynMin = torch.min(imProj[i, :])
 
-            if self.actBitwidth < 17:
+            if self.actBitwidth < 30:
                 imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
                                                            bitwidth=self.actBitwidth)
 
@@ -143,7 +154,7 @@ class ReLuPCA(nn.Module):
         # print(imProj[-1, :].numel(), imProj[-1, :].nonzero().numel())
         # print(self.bit_per_entry, self.bit_count)
 
-        if self.actBitwidth < 17:
+        if self.actBitwidth < 30:
             for i in range(0, self.channels):
                 imProj[i, :] = imProj[i, :] * mult[i] + add[i]
         imProj = torch.matmul(self.u, imProj)
@@ -152,7 +163,8 @@ class ReLuPCA(nn.Module):
         imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
 
         # return original mean
-        imProj = (imProj + mn)
+        imProj = imProj + mn
+        # imProj = imProj/torch.std(imProj) * std
 
         input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
         self.collectStats = False
