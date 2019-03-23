@@ -8,9 +8,8 @@ from tqdm import trange, tqdm
 
 from entropy import shannon_entropy
 
-# TODO
 eps = 1e-6
-reps = 1e-6
+reps = 1e-2  # empirical value
 
 
 def small(x):
@@ -27,19 +26,18 @@ def optimal_matrix(cov):
     with torch.set_grad_enabled(True):
         u = tmp_u.clone().requires_grad_()
         optimizer = torch.optim.SGD([u], lr=1e-5, momentum=0, weight_decay=0)
-        alpha = 1  # 0.3 is optimal for ResNet-18 # 0.1 is optimal for ResNet-50
-        beta = 10
+        alpha = 1e-5  # TODO
+        beta = 100
         for _ in trange(10000):
             optimizer.zero_grad()
             d = torch.matmul(u.transpose(0, 1), torch.matmul(cov, u))
             s = torch.diag(d).sum()
             norm = torch.norm(u, p=1)
-            orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u))
-            loss = beta * orth + s  # + alpha * norm
+            orth = torch.norm(torch.matmul(u.transpose(0, 1), u) - torch.eye(u.shape[0]).to(u) / n ** 2)
+            loss = beta * orth + s + alpha * norm
             assert not torch.isnan(loss)
             loss.backward()
             optimizer.step()
-    u = tmp_u.clone()
     s = torch.diag(torch.matmul(u.transpose(0, 1), torch.matmul(cov, u)))
     # DEBUG
     zu = torch.nonzero(small(u)).size(0)
