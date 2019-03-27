@@ -84,20 +84,67 @@ class ReLuPCA(nn.Module):
         self.collectStats = True
         self.bit_count = None
         self.relu = nn.ReLU(inplace=True)
+        self.microBlockSz = args.MicroBlockSz
+        self.channelsDiv = args.channelsDiv
+
+        dataBasicSize = 7 if args.dataset == 'imagenet' else 2
+        if self.microBlockSz > 1:
+            assert (self.microBlockSz % dataBasicSize == 0 )
+     #   assert (self.channelsDiv % 2 == 0)
+
+
+    def featuresReshape(self,input,N,C,H,W):
+        #check input
+        if (self.microBlockSz > H):
+            self.microBlockSz = H
+        assert (C % self.channelsDiv == 0)
+        Ct = (C / self.channelsDiv)
+        featureSize = self.microBlockSz*self.microBlockSz*Ct
+   #     assert(featureSize < 7000) #constant for SVD converge TODO - check correct value
+
+
+        input = input.view(-1,Ct,H,W) # N' x Ct x H x W
+        input = input.permute(0,2,3,1) # N' x H x W x Ct
+        input = input.contiguous().view(-1,self.microBlockSz,W,Ct).permute(0,2,1,3) # N'' x W x microBlockSz x Ct
+        input = input.contiguous().view(-1,self.microBlockSz,self.microBlockSz,Ct).permute(0,3,2,1) # N''' x Ct x microBlockSz x microBlockSz
+
+        return input.contiguous().view(-1,featureSize).t()
+
+    def featuresReshapeBack(self,input,N,C,H,W):
+
+        input = input.t()
+        Ct = (C / self.channelsDiv)
+
+        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2, 1) # N'''  x microBlockSz x microBlockSz x Ct
+        input = input.contiguous().view(-1, H,self.microBlockSz, Ct).permute(0, 2, 1, 3) # N''  x microBlockSz x H x Ct
+        input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2) # N' x Ct x H x W X
+
+        input = input.contiguous().view(N,C,H,W) # N x C x H x W
+
+        return input
+
+
+
 
     def forward(self, input):
-        self.channels = input.shape[1]
+
+        N, C, H, W = input.shape  # N x C x H x W
+        input = self.relu(input)
+
+
+      #  im = input.detach().transpose(0, 1).contiguous()
+      #  im = im.view(im.shape[0], -1)
+        im = self.featuresReshape(input,N,C,H,W)
+
+        self.channels = im.shape[0]
         if not hasattr(self, 'clampVal'):
             self.register_buffer('clampVal', torch.zeros(self.channels))
         if not hasattr(self, 'lapB'):
             self.register_buffer('lapB', torch.zeros(self.channels))
         if not hasattr(self, 'numElems'):
             self.register_buffer('numElems', torch.zeros(self.channels))
-        input = self.relu(input)
 
-        N, C, H, W = input.shape  # N x C x H x W
-        im = input.detach().transpose(0, 1).contiguous()  # C x N x H x W
-        im = im.view(im.shape[0], -1)  # C x (NxHxW)
+
 
         mn = torch.mean(im, dim=1, keepdim=True)
         # Centering the data
@@ -149,8 +196,7 @@ class ReLuPCA(nn.Module):
         self.act_size = imProj.numel()
         self.bit_per_entry = shannon_entropy(imProj).item()
         self.bit_count = self.bit_per_entry * self.act_size
-        # print(imProj[-1, :].numel(), imProj[-1, :].nonzero().numel())
-        # print(self.bit_per_entry, self.bit_count)
+
 
         if self.actBitwidth < 30:
             for i in range(0, self.channels):
@@ -162,9 +208,12 @@ class ReLuPCA(nn.Module):
 
         # return original mean
         imProj = imProj + mn
-        # imProj = imProj/torch.std(imProj) * std
 
-        input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
+        # return to general
+     #   input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
+     #   input = imProj.view(N, C, H, W).contiguous()  # N x C x H x W
+        input = self.featuresReshapeBack(imProj, N, C, H, W)
+
         self.collectStats = False
         return input
 
@@ -210,6 +259,8 @@ def act_quant(x, max, min, bitwidth):
     else:
         q_x = x
     return q_x
+
+
 
 
 class Round(torch.autograd.Function):

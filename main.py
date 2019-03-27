@@ -46,6 +46,7 @@ def parseArgs():
                         help='model architecture: ' + ' | '.join(modelNames))
     parser.add_argument('--epochs', type=int, default=200, help='num of training epochs ')
     parser.add_argument('--MicroBlockSz', type=int, default=1, help='MicroBlockSz')
+    parser.add_argument('--channelsDiv', type=int, default=1, help='channelsDiv')
     parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar - should be between 0 to 1')
     parser.add_argument('--lmbda', type=float, default=0, help='Lambda value for CompressLoss')
     parser.add_argument('--projType', type=str, default='eye', choices=['eye', 'pca', 'optim'],
@@ -72,7 +73,7 @@ def parseArgs():
     # create folder
     baseFolder = dirname(abspath(getfile(currentframe())))
     args.time = time.strftime("%Y%m%d-%H%M%S")
-    args.folderName = '{}_{}_{}_{}_{}_{}'.format(args.model, args.projType, args.actBitwidth, args.EigenVar,
+    args.folderName = '{}_{}_{}_{}_{}_{}'.format(args.model, args.projType, args.actBitwidth, args.MicroBlockSz,
                                                  args.dataset, args.time)
     args.save = '{}/results/{}'.format(baseFolder, args.folderName)
     if not os.path.exists(args.save):
