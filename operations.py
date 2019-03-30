@@ -1,4 +1,6 @@
 import math
+import os
+import tempfile
 
 import numpy as np
 import scipy.optimize as opt
@@ -6,7 +8,9 @@ import torch
 import torch.nn as nn
 from tqdm import trange, tqdm
 
+from ar_encoder.arithmeticcoding import SimpleFrequencyTable, ArithmeticEncoder
 from entropy import shannon_entropy
+from utils import write_int
 
 eps = 1e-6
 reps = 1e-2  # empirical value
@@ -73,6 +77,9 @@ def get_projection_matrix(im, projType):
 class ReLuPCA(nn.Module):
     def __init__(self, args, ch):
         super(ReLuPCA, self).__init__()
+
+        self.size_from_encoder = True
+
         self.actBitwidth = args.actBitwidth
         self.projType = args.projType
         self.per_channel = args.perCh
@@ -189,8 +196,28 @@ class ReLuPCA(nn.Module):
                                                            bitwidth=self.actBitwidth)
 
         self.act_size = imProj.numel()
-        self.bit_per_entry = shannon_entropy(imProj).item()
-        self.bit_count = self.bit_per_entry * self.act_size
+        if self.size_from_encoder:
+            int_img = torch.round(imProj).long().flatten()
+            counts = torch.bincount(int_img)
+            freqs = list(counts.cpu().numpy()) + [1]
+            afreqs = SimpleFrequencyTable(freqs)
+            int_img = int_img.cpu().numpy()
+            with tempfile.TemporaryFile() as fp:  # todo don't write to disk
+                for i in range(len(freqs)):
+                    write_int(fp, 32, afreqs.get(i))
+
+                enc = ArithmeticEncoder(32, fp)
+                for symbol in int_img:
+                    enc.write(freqs, symbol)
+                enc.write(freqs, len(freqs) - 1)  # EOF
+                enc.finish()  # Flush remaining code bits
+
+                fp.seek(0, os.SEEK_END)
+                size = fp.tell()
+            print(size)
+        else:
+            self.bit_per_entry = shannon_entropy(imProj).item()
+            self.bit_count = self.bit_per_entry * self.act_size
 
         if self.actBitwidth < 30:
             for i in range(0, self.channels):

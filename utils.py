@@ -120,7 +120,7 @@ def load_data(args, logger):
     sample = SubsetRandomSampler(np.linspace(rndIdx, rndIdx + statsBatchSize, statsBatchSize + 1, dtype=np.int)[:-1])
 
     statloader = torch.utils.data.DataLoader(test_data, batch_size=statsBatchSize, shuffle=False, num_workers=2,
-                                             sampler=sample) # TODO
+                                             sampler=sample)  # TODO
 
     return trainloader, testloader, statloader
 
@@ -138,3 +138,9 @@ class TqdmLoggingHandler(logging.Handler):
             raise
         except:
             self.handleError(record)
+
+
+# Writes an unsigned integer of the given bit width to the given stream.
+def write_int(bitout, numbits, value):
+    for i in reversed(range(numbits)):
+        bitout.write((value >> i) & 1)  # Big endian
