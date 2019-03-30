@@ -1,3 +1,4 @@
+import contextlib
 import math
 import os
 import tempfile
@@ -8,7 +9,7 @@ import torch
 import torch.nn as nn
 from tqdm import trange, tqdm
 
-from ar_encoder.arithmeticcoding import SimpleFrequencyTable, ArithmeticEncoder
+from ar_encoder.arithmeticcoding import SimpleFrequencyTable, ArithmeticEncoder, BitOutputStream
 from entropy import shannon_entropy
 from utils import write_int
 
@@ -111,8 +112,7 @@ class ReLuPCA(nn.Module):
         input = input.view(-1, Ct, H, W)  # N' x Ct x H x W
         input = input.permute(0, 2, 3, 1)  # N' x H x W x Ct
         input = input.contiguous().view(-1, self.microBlockSz, W, Ct).permute(0, 2, 1, 3)  # N'' x W x microBlockSz x Ct
-        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2,
-                                                                                              1)  # N''' x Ct x microBlockSz x microBlockSz
+        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2, 1)  # N''' x Ct x microBlockSz x microBlockSz
 
         return input.contiguous().view(-1, featureSize).t()
 
@@ -121,10 +121,8 @@ class ReLuPCA(nn.Module):
         input = input.t()
         Ct = C // self.channelsDiv
 
-        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2,
-                                                                                 1)  # N'''  x microBlockSz x microBlockSz x Ct
-        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1,
-                                                                              3)  # N''  x microBlockSz x H x Ct
+        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2, 1)  # N'''  x microBlockSz x microBlockSz x Ct
+        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1, 3)  # N''  x microBlockSz x H x Ct
         input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2)  # N' x Ct x H x W X
 
         input = input.contiguous().view(N, C, H, W)  # N x C x H x W
@@ -202,15 +200,17 @@ class ReLuPCA(nn.Module):
             freqs = list(counts.cpu().numpy()) + [1]
             afreqs = SimpleFrequencyTable(freqs)
             int_img = int_img.cpu().numpy()
-            with tempfile.TemporaryFile() as fp:  # todo don't write to disk
-                for i in range(len(freqs)):
-                    write_int(fp, 32, afreqs.get(i))
+            # todo don't write to disk
+            with tempfile.TemporaryFile() as fp:
+                with contextlib.closing(BitOutputStream(fp)) as bitout:
+                    for i in range(len(freqs)):
+                        write_int(bitout, 32, afreqs.get(i))
 
-                enc = ArithmeticEncoder(32, fp)
-                for symbol in int_img:
-                    enc.write(freqs, symbol)
-                enc.write(freqs, len(freqs) - 1)  # EOF
-                enc.finish()  # Flush remaining code bits
+                    enc = ArithmeticEncoder(32, bitout)
+                    for symbol in int_img:
+                        enc.write(afreqs, symbol)
+                    enc.write(afreqs, len(freqs) - 1)  # EOF
+                    enc.finish()  # Flush remaining code bits
 
                 fp.seek(0, os.SEEK_END)
                 size = fp.tell()
