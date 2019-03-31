@@ -212,9 +212,13 @@ class ReLuPCA(nn.Module):
                     enc.write(afreqs, len(freqs) - 1)  # EOF
                     enc.finish()  # Flush remaining code bits
 
-                fp.seek(0, os.SEEK_END)
-                size = fp.tell()
-            print(size)
+                    fp.seek(0, os.SEEK_END)
+                    size = fp.tell()
+            self.actual_bit_count = self.actBitwidth * self.act_size / 8
+            self.bit_per_entry = size * 8
+            self.bit_count = self.bit_per_entry * self.act_size
+            print("{} bytes compressing {} bytes. {} compression".format(size, self.actual_bit_count,
+                                                                         size / self.actual_bit_count))
         else:
             self.bit_per_entry = shannon_entropy(imProj).item()
             self.bit_count = self.bit_per_entry * self.act_size
