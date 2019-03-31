@@ -11,6 +11,7 @@ from tqdm import trange, tqdm
 
 from ar_encoder.arithmeticcoding import SimpleFrequencyTable, ArithmeticEncoder, BitOutputStream
 from entropy import shannon_entropy
+from huffman import huffman_encode
 from utils import write_int
 
 eps = 1e-6
@@ -79,7 +80,8 @@ class ReLuPCA(nn.Module):
     def __init__(self, args, ch):
         super(ReLuPCA, self).__init__()
 
-        self.size_from_encoder = True
+        self.size_from_ar_encoder = False
+        self.size_from_huff_encoder = True
 
         self.actBitwidth = args.actBitwidth
         self.projType = args.projType
@@ -112,7 +114,8 @@ class ReLuPCA(nn.Module):
         input = input.view(-1, Ct, H, W)  # N' x Ct x H x W
         input = input.permute(0, 2, 3, 1)  # N' x H x W x Ct
         input = input.contiguous().view(-1, self.microBlockSz, W, Ct).permute(0, 2, 1, 3)  # N'' x W x microBlockSz x Ct
-        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2, 1)  # N''' x Ct x microBlockSz x microBlockSz
+        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2,
+                                                                                              1)  # N''' x Ct x microBlockSz x microBlockSz
 
         return input.contiguous().view(-1, featureSize).t()
 
@@ -121,8 +124,10 @@ class ReLuPCA(nn.Module):
         input = input.t()
         Ct = C // self.channelsDiv
 
-        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2, 1)  # N'''  x microBlockSz x microBlockSz x Ct
-        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1, 3)  # N''  x microBlockSz x H x Ct
+        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2,
+                                                                                 1)  # N'''  x microBlockSz x microBlockSz x Ct
+        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1,
+                                                                              3)  # N''  x microBlockSz x H x Ct
         input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2)  # N' x Ct x H x W X
 
         input = input.contiguous().view(N, C, H, W)  # N x C x H x W
@@ -194,7 +199,7 @@ class ReLuPCA(nn.Module):
                                                            bitwidth=self.actBitwidth)
 
         self.act_size = imProj.numel()
-        if self.size_from_encoder:
+        if self.size_from_ar_encoder:
             int_img = torch.round(imProj).long().flatten()
             counts = torch.bincount(int_img)
             freqs = list(counts.cpu().numpy()) + [1]
@@ -219,6 +224,15 @@ class ReLuPCA(nn.Module):
             self.bit_count = self.bit_per_entry * self.act_size
             print("{} bytes compressing {} bytes. {} compression".format(size, self.actual_bit_count,
                                                                          size / self.actual_bit_count))
+
+        elif self.size_from_huff_encoder:
+            int_img = torch.round(imProj).long().flatten()
+            counts = torch.bincount(int_img)
+            freqs = list(counts.cpu().numpy())
+            codes = huffman_encode(freqs)
+            self.bit_count = np.sum([len(codes[i]) * freqs[i] for i in range(len(freqs))])
+            self.bit_per_entry = self.bit_count / self.act_size
+
         else:
             self.bit_per_entry = shannon_entropy(imProj).item()
             self.bit_count = self.bit_per_entry * self.act_size
