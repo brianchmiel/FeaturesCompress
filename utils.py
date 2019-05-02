@@ -66,16 +66,18 @@ def get_dataset(name, train, transform, target_transform=None, download=True, da
 
 def get_transform(args):
     if args.dataset == 'imagenet':
+        resize = 256 if args.model != 'inception_v3' else 299
+        crop_size = 224 if args.model != 'inception_v3' else 299
         transform_train = torchvision.transforms.Compose([
-            torchvision.transforms.RandomResizedCrop(224),
+            torchvision.transforms.RandomResizedCrop(crop_size),
             torchvision.transforms.RandomHorizontalFlip(),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                              std=[0.229, 0.224, 0.225]),
         ])
         transform_test = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(256),
-            torchvision.transforms.CenterCrop(224),
+            torchvision.transforms.Resize(resize),
+            torchvision.transforms.CenterCrop(crop_size),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                              std=[0.229, 0.224, 0.225]),
@@ -94,7 +96,32 @@ def get_transform(args):
 
     return transform_train, transform_test
 
-
+def measureCorrBetweenChannels(tensor):
+    N, C, H, W = tensor.shape  # N x C x H x W
+    tensor = tensor.detach().transpose(0, 1).contiguous()
+    tensor = tensor.contiguous().view(tensor.shape[0], -1)
+    mn = torch.mean(tensor, dim=1, keepdim=True)
+    # Centering the data
+    tensor = tensor - mn
+    sm = torch.zeros(1)
+    elems = torch.zeros(1)
+    corr = torch.zeros((C,C))
+    cov = torch.matmul(tensor, tensor.t()) / tensor.shape[1]
+    # svd
+    u, s, _ = torch.svd(cov)
+    tensor = torch.matmul(u.t(),tensor)
+    for i in range(0,C):
+        for j in range(0,i):
+            data1 = tensor[i,:]
+            data2 = tensor[j,:]
+            cov = (data1.dot(data2)) / data1.shape[0]
+            std1 = torch.std(data1)
+            std2 = torch.std(data2)
+            corr[i,j] = cov / (std1 * std2)
+            sm += torch.abs(corr[i,j])
+            elems += 1
+    print(((sm + C) / (elems)).item())
+    return corr
 def load_data(args, logger):
     # init transforms
     logger.info('==> Preparing data..')
@@ -114,13 +141,13 @@ def load_data(args, logger):
 
     # statsdata = get_dataset(args.dataset, train=False, transform=transform['test'], datasets_path=args.data)
 
-    statsBatchSize = args.batch
+    statsBatchSize = args.batch * 2
     data_len = 50000 if args.dataset == 'imagenet' else 10000
     rndIdx = random.randint(0, data_len - statsBatchSize)
     sample = SubsetRandomSampler(np.linspace(rndIdx, rndIdx + statsBatchSize, statsBatchSize + 1, dtype=np.int)[:-1])
 
     statloader = torch.utils.data.DataLoader(test_data, batch_size=statsBatchSize, shuffle=False, num_workers=2,
-                                             sampler=sample)  # TODO
+                                             sampler=sample) # TODO
 
     return trainloader, testloader, statloader
 
@@ -138,9 +165,3 @@ class TqdmLoggingHandler(logging.Handler):
             raise
         except:
             self.handleError(record)
-
-
-# Writes an unsigned integer of the given bit width to the given stream.
-def write_int(bitout, numbits, value):
-    for i in reversed(range(numbits)):
-        bitout.write((value >> i) & 1)  # Big endian

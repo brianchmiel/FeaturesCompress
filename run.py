@@ -59,13 +59,21 @@ class Run:
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(testLoader):
                 inputs, targets = inputs.cuda(), targets.cuda()
-                out = self.model(inputs)
+                self.model(inputs)
+
+
+
+                ent = np.sum(np.array([x.bit_count for x in self.model.modules() if hasattr(x, "bit_count")]))
+                entH = np.sum(np.array([x.bit_countH for x in self.model.modules() if hasattr(x, "bit_countH")]))
+                act_count = np.sum(np.array([x.act_size for x in self.model.modules() if hasattr(x, "act_size")]))
+                self.logging.info('Activation count: {}. Average entropy: {:.4f}. Huffman bits: {:.4f}'
+                                  .format(act_count, ent / act_count / (batch_idx + 1),float(entH) / act_count / (batch_idx + 1)))
                 break
 
     def runTest(self, args, testLoader, epoch):
         self.model.eval()
         # crossEntrTotalLoss, compressTotalLoss, test_loss, correct, total = 0, 0, 0, 0, 0
-        test_loss, correct, total, entropy = 0, 0, 0, 0
+        test_loss, correct, total, entropy, entropyH, mseTotal = 0, 0, 0, 0,0,0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(tqdm.tqdm(testLoader)):
                 inputs, targets = inputs.cuda(), targets.cuda()
@@ -76,14 +84,35 @@ class Run:
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
                 ent = np.array([x.bit_count for x in self.model.modules() if hasattr(x, "bit_count")])
-                entropy += np.sum(ent)
-                self.logging.info('step: {} / {} : Loss: {:.3f}  | ent: {:.3f} Mbit | '
-                                  'Acc: {:.3f}% ({}/{})'
-                                  .format(batch_idx + 1, len(testLoader), test_loss / (batch_idx + 1),
-                                          entropy / 1e6 / (batch_idx + 1), 100. * correct / total, correct, total))
+                entH = np.array([x.bit_countH for x in self.model.modules() if hasattr(x, "bit_countH")])
+                mse = np.array([x.mse for x in self.model.modules() if hasattr(x, "mse")])
+                if args.project:
+                    entropy += np.sum(ent)
+                    entropyH += np.sum(entH)
+                    mseTotal +=np.sum(mse)
+                if batch_idx % 10 == 0 :
+                    self.logging.info('step: {} / {} : Loss: {:.3f}  | ent: {:.3f} Mbit | huff: {:.3f} Mbit | '
+                                      'Acc: {:.3f}% ({}/{})'
+                                      .format(batch_idx + 1, len(testLoader), test_loss / (batch_idx + 1),
+                                              entropy / 1e6 / (batch_idx + 1), entropyH / 1e6 / (batch_idx + 1),
+                                              100. * correct / total, correct, total))
+
+        self.logging.info('step: {} / {} : Loss: {:.3f}  | ent: {:.3f} Mbit | huff: {:.3f} Mbit | '
+                          'Acc: {:.3f}% ({}/{})'
+                          .format(batch_idx + 1, len(testLoader), test_loss / (batch_idx + 1),
+                                  entropy / 1e6 / (batch_idx + 1), entropyH / 1e6 / (batch_idx + 1),
+                                  100. * correct / total, correct, total))
+
         act_count = np.sum(np.array([x.act_size for x in self.model.modules() if hasattr(x, "act_size")]))
-        self.logging.info('Activation count: {}. Average entropy: {:.4f}'
-                          .format(act_count, entropy / len(testLoader) / act_count))
+        self.logging.info('Activation count: {}. Average entropy: {:.4f}. Huffman bits: {:.4f}. MSE: {:.4f}.'
+                          .format(act_count, entropy / len(testLoader) / act_count, float(entropyH) / len(testLoader) / act_count,
+                                  mseTotal / len(testLoader) / act_count))
+
+        channels = np.sum(np.array([x.channels for x in self.model.modules() if hasattr(x, "channels")]))
+        orig_channels = np.sum(np.array([x.original_channels for x in self.model.modules() if hasattr(x, "original_channels")]))
+
+        self.logging.info('channels: {}. original channels: {}. Ratio: {:.4f}'
+                          .format(channels, orig_channels, orig_channels / channels))
         # Save checkpoint.
         acc = 100. * correct / total
         if acc > self.best_acc:

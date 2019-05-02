@@ -1,5 +1,5 @@
 from __future__ import print_function
-
+import torch
 import argparse
 import logging
 import os
@@ -23,7 +23,7 @@ from torch.nn import CrossEntropyLoss
 import Models
 from run import Run
 from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, load_data, checkModelDataset
-
+from quantizeWeights import quantizeWeights
 
 def parseArgs():
     modelNames = loadModelNames()
@@ -40,22 +40,25 @@ def parseArgs():
     parser.add_argument('--dataset', metavar='DATASET', default='cifar10', choices=datasets.keys(), help='dataset name')
 
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
-    parser.add_argument('--actBitwidth', default=32, type=int, metavar='N',
+    parser.add_argument('--actBitwidth', default=32, type=float, metavar='N',
                         help='Quantization activation bitwidth (default: 32)')
+    parser.add_argument('--weightBitwidth', default=32, type=int, metavar='N',
+                        help='Quantization weight bitwidth (default: 32)')
     parser.add_argument('--model', '-a', metavar='MODEL', choices=modelNames,
                         help='model architecture: ' + ' | '.join(modelNames))
     parser.add_argument('--epochs', type=int, default=200, help='num of training epochs ')
     parser.add_argument('--MicroBlockSz', type=int, default=1, help='MicroBlockSz')
     parser.add_argument('--channelsDiv', type=int, default=1, help='channelsDiv')
-    parser.add_argument('--EigenVar', type=float, default=1.0, help='EigenVar - should be between 0 to 1')
+    parser.add_argument('--eigenVar', type=float, default=1.0, help='EigenVar - should be between 0 to 1')
     parser.add_argument('--lmbda', type=float, default=0, help='Lambda value for CompressLoss')
-    parser.add_argument('--projType', type=str, default='eye', choices=['eye', 'pca', 'optim'],
+    parser.add_argument('--projType', type=str, default='eye', choices=['eye', 'pca', 'optim','pcaT','pcaQ','pcaSparse'],
                         help='which projection we do: [eye, pca]')
     parser.add_argument('--clipType', type=str, default='laplace', choices=['laplace', 'gaussian'],
                         help='which clipping we do: [laplace, gaussian]')
     parser.add_argument('--project', action='store_true', help='if use projection - run only inference')
     parser.add_argument('--preTrained', action='store_true', help='pre-trained model to copy weights from')
     parser.add_argument('--perCh', action='store_true', help='per channel quantization')
+
     args = parser.parse_args()
 
     # check that model-dataset are good pair
@@ -73,9 +76,9 @@ def parseArgs():
     # create folder
     baseFolder = dirname(abspath(getfile(currentframe())))
     args.time = time.strftime("%Y%m%d-%H%M%S")
-    args.folderName = '{}_{}_{}_{}_{}_{}'.format(args.model, args.projType, args.actBitwidth, args.MicroBlockSz,
+    args.folderName = '{}_{}_{}_{}_{}_{}_{}'.format(args.model, args.projType, args.actBitwidth, args.weightBitwidth, args.MicroBlockSz,
                                                  args.dataset, args.time)
-    args.save = '{}/results/{}'.format(baseFolder, args.folderName)
+    args.save = '{}/results/Shape/{}'.format(baseFolder, args.folderName)
     if not os.path.exists(args.save):
         os.makedirs(args.save)
 
@@ -119,7 +122,7 @@ if __name__ == '__main__':
     logging.info('==> Building model..')
     modelClass = Models.__dict__[args.model]
     model = modelClass(args)
-    model = model.cuda()
+
 
     # Parameters
     start_epoch = 0
@@ -128,6 +131,26 @@ if __name__ == '__main__':
         # Load checkpoint.
         logging.info('==> Resuming from checkpoint..')
         model.loadPreTrained()
+
+
+    #Weights quantization
+    if args.weightBitwidth < 32 :
+
+   #     model = quantizeWeights(model, args.weightBitwidth, logging)
+
+        model_path = './qmodels'
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+        model_path = os.path.join(model_path, args.model + ('_kmeans%dbit.pt' % args.weightBitwidth))
+        if not os.path.exists(model_path):
+            model = quantizeWeights(model, args.weightBitwidth,logging)
+            torch.save(model,model_path)
+        else:
+            torch.load(model_path)
+            logging.info('Loaded preTrained model with weights quantized to {} bits'.format(args.weightBitwidth))
+
+
+    model = model.cuda()
 
     # Optimization and criterion
     # TODO - add option to choose criterion and optimizer
@@ -139,6 +162,9 @@ if __name__ == '__main__':
     logging.info('CommandLine: {} PID: {} '
                  'Hostname: {} CUDA_VISIBLE_DEVICES {}'.format(argv, getpid(), gethostname(),
                                                                environ.get('CUDA_VISIBLE_DEVICES')))
+
+
+
 
     # collect statistics
     if args.project:
