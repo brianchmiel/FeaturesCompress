@@ -19,7 +19,7 @@ def huffman_encode(imProj):
 
     int_img = torch.round(imProj).long().flatten()
     counts = torch.bincount(int_img)
-    counts = counts.float() / torch.sum(counts)
+    # counts = counts.float() / torch.sum(counts)
     freq_map = list(counts.cpu().numpy())
 
 
@@ -31,8 +31,7 @@ def huffman_encode(imProj):
     while(len(heap) > 1):
         node1 = heappop(heap)
         node2 = heappop(heap)
-        merged = Node(node1.freq + node2.freq, '(' + str(node1.value) + ',' + str(node2.value) + ')',
-                      node1, node2)
+        merged = Node(node1.freq + node2.freq, None, node1, node2)
         heappush(heap, merged)
         print(node1)
         print(node2)

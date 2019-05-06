@@ -4,9 +4,11 @@ import numpy as np
 import scipy.optimize as opt
 import torch
 import torch.nn as nn
-from tqdm import trange, tqdm
 from sklearn.cluster import KMeans
 from sklearn.decomposition import SparsePCA
+from torch.nn import functional as F
+from tqdm import trange, tqdm
+
 from entropy import shannon_entropy
 from huffman import huffman_encode
 
@@ -335,75 +337,326 @@ class ReLuPCA(nn.Module):
 
         self.clampVal = self.clampValL[0]
 
-      #   origDist = torch.histc(data.cpu())
-      #   origDist = origDist / torch.sum(origDist)
-      #
-      #   clamps = np.linspace(0.1,2,40) * self.clampValL[0].item()
-      #
-      #   mses = []
-      #   divr = []
-      #   entr = []
-      #
-      #   for c in range(0,len(clamps)):
-      #
-      #       imProj = torch.matmul(self.u.t(), data)
-      #       clampMax = clamps[c]
-      #       clampMin = -clampMax
-      #
-      #       if clampMax < torch.max(imProj) or clampMin > torch.min(imProj):
-      #           imProj = torch.clamp(imProj, max=clampMax, min=clampMin)
-      #
-      #           dynMax = torch.max(imProj)
-      #           dynMin = torch.min(imProj)
-      #           if self.actBitwidth < 30:
-      #               imProj, mult, add = part_quant(imProj, max=dynMax, min=dynMin,
-      #                                                          bitwidth=self.actBitwidth)
-      #
-      #
-      #           act_size = imProj.numel()
-      #           bit_per_entry = shannon_entropy(imProj).item()
-      #           bit_count = bit_per_entry * act_size
-      #           #    print(bit_per_entry)
-      #
-      #           if self.actBitwidth < 30:
-      #               imProj = imProj * mult + add
-      #
-      #           imProj = torch.matmul(self.u, imProj)
-      #
-      #           # Bias Correction
-      #           imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
-      #
-      #           currDist = torch.histc(imProj.cpu(), max = torch.max(data), min = torch.min(data))
-      #           currDist = currDist / torch.sum(currDist)
-      #
-      #           currDiv = origDist * (-1) * torch.log(origDist / currDist)
-      #           currDiv[origDist == 0] = 0
-      #           currDiv[currDist == 0] = 0
-      #           divr.append(torch.sum(currDiv))
-      #           mses.append(torch.mean((imProj - data)**2))
-      #           entr.append(bit_per_entry)
-      #
-      #   divr = torch.tensor(divr)
-      #   mses = torch.tensor(mses)
-      #   entr = torch.tensor(entr)
-      #
-      #   # print('*****')
-      #   # print(divr)
-      #   # print(mses)
-      #   # print(entr)
-      #
-      #   # idxs = (divr == torch.max(divr)).nonzero()
-      #   # idx = torch.argmin(mses[idxs])
-      #
-      #   idxs = (mses == torch.min(mses)).nonzero()
-      #   idx = torch.argmax(divr[idxs])
-      #
-      # #  print(idxs[idx])
-      #
-      #   self.clampVal = torch.tensor(clamps[idxs[idx]])
+        # origDist = torch.histc(data.cpu())
+        # origDist = origDist / torch.sum(origDist)
+        #
+        # clamps = np.linspace(0.1, 2, 40) * self.clampValL[0].item()
+        #
+        # mses = []
+        # divr = []
+        # entr = []
+        #
+        # for c in range(0, len(clamps)):
+        #
+        #     imProj = torch.matmul(self.u.t(), data)
+        #     clampMax = clamps[c]
+        #     clampMin = -clampMax
+        #
+        #     if clampMax < torch.max(imProj) or clampMin > torch.min(imProj):
+        #         imProj = torch.clamp(imProj, max=clampMax, min=clampMin)
+        #
+        #         dynMax = torch.max(imProj)
+        #         dynMin = torch.min(imProj)
+        #         if self.actBitwidth < 30:
+        #             imProj, mult, add = part_quant(imProj, max=dynMax, min=dynMin,
+        #                                            bitwidth=self.actBitwidth)
+        #
+        #         act_size = imProj.numel()
+        #         bit_per_entry = shannon_entropy(imProj).item()
+        #         bit_count = bit_per_entry * act_size
+        #         #    print(bit_per_entry)
+        #
+        #         if self.actBitwidth < 30:
+        #             imProj = imProj * mult + add
+        #
+        #         imProj = torch.matmul(self.u, imProj)
+        #
+        #         # Bias Correction
+        #         imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
+        #
+        #         currDist = torch.histc(imProj.cpu(), max=torch.max(data), min=torch.min(data))
+        #         currDist = currDist / torch.sum(currDist)
+        #
+        #         currDiv = origDist * (-1) * torch.log(origDist / currDist)
+        #         currDiv[origDist == 0] = 0
+        #         currDiv[currDist == 0] = 0
+        #         divr.append(torch.sum(currDiv))
+        #         mses.append(torch.mean((imProj - data) ** 2))
+        #         entr.append(bit_per_entry)
+        #
+        # divr = torch.tensor(divr)
+        # mses = torch.tensor(mses)
+        # entr = torch.tensor(entr)
+        #
+        # # print('*****')
+        # # print(divr)
+        # # print(mses)
+        # # print(entr)
+        #
+        # # idxs = (divr == torch.max(divr)).nonzero()
+        # # idx = torch.argmin(mses[idxs])
+        #
+        # idxs = (mses == torch.min(mses)).nonzero()
+        # idx = torch.argmax(divr[idxs])
+        #
+        # #  print(idxs[idx])
+        #
+        # self.clampVal = torch.tensor(clamps[idxs[idx]])
+        #
 
 
+class ConvBNPCA(nn.Conv2d):
+    def __init__(self, args, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True, clamp='gaus'):
+        super(ConvBNPCA, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                        padding, dilation, groups, bias)
+        self.actBitwidth = args.actBitwidth
+        self.projType = args.projType
+        self.per_channel = args.perCh
+        if self.projType == 'eye':
+            self.stats = 'all' if not self.per_channel else 'channel'
+        else:
+            self.stats = 'first' if not self.per_channel else 'channel'
 
+        self.project = args.project
+        self.collectStats = True
+        self.bit_count = None
+
+        self.microBlockSz = args.MicroBlockSz
+        self.channelsDiv = args.channelsDiv
+        self.eigenVar = args.eigenVar
+        dataBasicSize = 7 if args.dataset == 'imagenet' else 2
+        self.clampType = clamp
+
+    def featuresReshape(self, input, N, C, H, W):
+        # check input
+        if (self.microBlockSz > H):
+            self.microBlockSz = H
+        if (self.channelsDiv > C):
+            self.channelsDiv = C
+        assert (C % self.channelsDiv == 0)
+        Ct = C // self.channelsDiv
+        featureSize = self.microBlockSz * self.microBlockSz * Ct
+        #     assert(featureSize < 7000) #constant for SVD converge TODO - check correct value
+
+        input = input.view(-1, Ct, H, W)  # N' x Ct x H x W
+        input = input.permute(0, 2, 3, 1)  # N' x H x W x Ct
+        input = input.contiguous().view(-1, self.microBlockSz, W, Ct).permute(0, 2, 1, 3)  # N'' x W x microBlockSz x Ct
+        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2,
+                                                                                              1)  # N''' x Ct x microBlockSz x microBlockSz
+
+        return input.contiguous().view(-1, featureSize).t()
+
+    def featuresReshapeBack(self, input, N, C, H, W):
+
+        input = input.t()
+        Ct = C // self.channelsDiv
+
+        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2, 1)  # N'''  x microBlockSz x microBlockSz x Ct
+        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1, 3)  # N''  x microBlockSz x H x Ct
+        input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2)  # N' x Ct x H x W X
+
+        input = input.contiguous().view(N, C, H, W)  # N x C x H x W
+
+        return input
+
+    def get_stats_params(self, im):
+        self.u, self.s = get_projection_matrix(im, self.projType, self.eigenVar)
+        self.original_channels = self.u.shape[0]
+
+        # update weights
+        self.weight.data = self.weight.data.transpose(0, 3).unsqueeze(4)
+        self.weight.data = torch.matmul(self.u.t(), self.weight.data)
+        self.weight.data = self.weight.data.squeeze(4).transpose(0, 3).contiguous()
+        if self.bias is None:
+            zeros = torch.Tensor(self.out_channels).zero_().type(self.weight.data.type())
+            self.bias = nn.Parameter(zeros)
+        self.bias.data -= self.mn.squeeze()
+        self.bias.data = torch.matmul(self.u.t(), self.bias.data)
+
+    def forward(self, input):
+        if self.project:
+
+            self.channels = self.out_channels
+
+            if not hasattr(self, 'clampValL'):
+                self.register_buffer('clampValL', torch.zeros(self.channels))
+            if not hasattr(self, 'clampValG'):
+                self.register_buffer('clampValG', torch.zeros(self.channels))
+            if not hasattr(self, 'clampVal'):
+                self.register_buffer('clampVal', torch.zeros(self.channels))
+            if not hasattr(self, 'lapB'):
+                self.register_buffer('lapB', torch.zeros(self.channels))
+            if not hasattr(self, 'gausStd'):
+                self.register_buffer('gausStd', torch.zeros(self.channels))
+            if not hasattr(self, 'numElems'):
+                self.register_buffer('numElems', torch.zeros(self.channels))
+            if not hasattr(self, 'mn'):
+                self.register_buffer('mn', torch.zeros(self.channels, 1))
+
+            # Calculate projection matrix if needed
+            if self.collectStats:
+                im = F.conv2d(input, self.weight, self.bias, self.stride,
+                              self.padding, self.dilation, self.groups)
+                N, C, H, W = im.shape  # N x C x H x W
+                im = self.featuresReshape(im, N, C, H, W)
+                self.mn = torch.mean(im, dim=1, keepdim=True)
+                # Centering the data
+                im = im - self.mn
+                self.get_stats_params(im)
+                # projection
+                imProj = torch.matmul(self.u.t(), im)
+
+                # conv + bn if exists + projection
+                im2 = F.conv2d(input, self.weight, self.bias, self.stride,
+                               self.padding, self.dilation, self.groups)
+                imProj2 = self.featuresReshape(im2, N, C, H, W)
+                assert (torch.max(torch.abs(imProj - imProj2)) < 0.1)
+            else:
+                # conv + bn if exists + projection
+                im = F.conv2d(input, self.weight, self.bias, self.stride,
+                              self.padding, self.dilation, self.groups)
+                N, C, H, W = im.shape  # N x C x H x W
+                imProj = self.featuresReshape(im, N, C, H, W)
+
+            mult = torch.zeros(1).to(imProj)
+            add = torch.zeros(1).to(imProj)
+
+            if self.collectStats:
+                # collect b of laplacian distribution
+                if self.stats == 'channel':
+                    for i in range(0, self.channels):
+                        self.lapB[i] += torch.sum(torch.abs(imProj[i, :]))
+                        self.numElems[i] += imProj.shape[1]
+                        self.gausStd[i] = torch.std(imProj[i, :])
+                elif self.stats == 'first':
+                    self.lapB += torch.sum(torch.abs(imProj[0, :]))
+                    self.numElems += imProj.shape[1]
+                    self.gausStd += torch.std(imProj[0, :])
+                elif self.stats == 'all':
+                    self.lapB += torch.sum(torch.abs(imProj))
+                    self.numElems += imProj.numel()
+                    self.gausStd += torch.std(imProj.view(-1))
+                else:
+                    raise ValueError("Wrong stats type")
+
+                self.collectStats = False
+
+            dynMax = torch.max(imProj)
+            dynMin = torch.min(imProj)
+
+            if self.actBitwidth < 30:
+                imProj, mult, add = part_quant(imProj, max=dynMax, min=dynMin,
+                                               bitwidth=self.actBitwidth)
+
+            self.act_size = imProj.numel()
+            self.bit_per_entry = shannon_entropy(imProj).item()
+            self.bit_count = self.bit_per_entry * self.act_size
+
+            if False:
+                self.bit_countH = huffman_encode(imProj)
+                self.bit_per_entryH = self.bit_countH / self.act_size
+
+            # if self.actBitwidth < 30:
+            #     for i in range(0, self.channels):
+            #         imProj[i, :] = imProj[i, :] * mult[i] + add[i]
+
+            if self.actBitwidth < 30:
+                imProj = imProj * mult + add
+
+            imProj = torch.matmul(self.u, imProj)
+
+            # Bias Correction
+            imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
+
+            # self.mse = torch.sum((imProj - im) ** 2)
+            # return original mean
+            imProj = imProj + self.mn
+
+            # return to general
+            #   input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
+            #  input = imProj.contiguous().view(N, C, H, W)# N x C x H x W
+            input = self.featuresReshapeBack(imProj, N, C, H, W)
+        else:
+            input = F.conv2d(input, self.weight, self.bias, self.stride,
+                             self.padding, self.dilation, self.groups)
+
+        # input = self.relu(input)
+        return input
+
+    def updateClamp(self, data):
+        self.lapB[0] = (self.lapB[0] / self.numElems[0])
+        self.clampValL[0] = opt.minimize_scalar(
+            lambda x: mse_laplace(x, b=self.lapB[0].item(), num_bits=self.actBitwidth)).x
+
+        self.clampVal = self.clampValL[0]
+
+        # origDist = torch.histc(data.cpu())
+        # origDist = origDist / torch.sum(origDist)
+        #
+        # clamps = np.linspace(0.1, 2, 40) * self.clampValL[0].item()
+        #
+        # mses = []
+        # divr = []
+        # entr = []
+        #
+        # for c in range(0, len(clamps)):
+        #
+        #     imProj = torch.matmul(self.u.t(), data)
+        #     clampMax = clamps[c]
+        #     clampMin = -clampMax
+        #
+        #     if clampMax < torch.max(imProj) or clampMin > torch.min(imProj):
+        #         imProj = torch.clamp(imProj, max=clampMax, min=clampMin)
+        #
+        #         dynMax = torch.max(imProj)
+        #         dynMin = torch.min(imProj)
+        #         if self.actBitwidth < 30:
+        #             imProj, mult, add = part_quant(imProj, max=dynMax, min=dynMin,
+        #                                            bitwidth=self.actBitwidth)
+        #
+        #         act_size = imProj.numel()
+        #         bit_per_entry = shannon_entropy(imProj).item()
+        #         bit_count = bit_per_entry * act_size
+        #         #    print(bit_per_entry)
+        #
+        #         if self.actBitwidth < 30:
+        #             imProj = imProj * mult + add
+        #
+        #         imProj = torch.matmul(self.u, imProj)
+        #
+        #         # Bias Correction
+        #         imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
+        #
+        #         currDist = torch.histc(imProj.cpu(), max=torch.max(data), min=torch.min(data))
+        #         currDist = currDist / torch.sum(currDist)
+        #
+        #         currDiv = origDist * (-1) * torch.log(origDist / currDist)
+        #         currDiv[origDist == 0] = 0
+        #         currDiv[currDist == 0] = 0
+        #         divr.append(torch.sum(currDiv))
+        #         mses.append(torch.mean((imProj - data) ** 2))
+        #         entr.append(bit_per_entry)
+        #
+        # divr = torch.tensor(divr)
+        # mses = torch.tensor(mses)
+        # entr = torch.tensor(entr)
+        #
+        # # print('*****')
+        # # print(divr)
+        # # print(mses)
+        # # print(entr)
+        #
+        # # idxs = (divr == torch.max(divr)).nonzero()
+        # # idx = torch.argmin(mses[idxs])
+        #
+        # idxs = (mses == torch.min(mses)).nonzero()
+        # idx = torch.argmax(divr[idxs])
+        #
+        # #  print(idxs[idx])
+        #
+        # self.clampVal = torch.tensor(clamps[idxs[idx]])
+        #
 
 
 # taken from https://github.com/submission2019/cnn-quantization/blob/master/optimal_alpha.ipynb
