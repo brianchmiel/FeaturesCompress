@@ -23,23 +23,24 @@ class BatchNorm2dAbsorbed(nn.BatchNorm2d):
 
     def forward(self, input):
         if hasattr(self, 'absorbed'):
-                return input
+            return input
         else:
             return super(BatchNorm2dAbsorbed, self).forward(input)
-
 
 
 def small(x):
     return torch.abs(x) < reps * torch.max(torch.abs(x))
 
+
 def quantize1d_kmeans(x, num_bits=8, n_jobs=-1):
     orig_shape = x.shape
     x = np.expand_dims(x.flatten(), -1)
     # init = np.expand_dims(np.linspace(x.min(), x.max(), 2**num_bits), -1)
-    kmeans = KMeans(n_clusters=2**num_bits, random_state=0, n_jobs=n_jobs)
+    kmeans = KMeans(n_clusters=2 ** num_bits, random_state=0, n_jobs=n_jobs)
     x_kmeans = kmeans.fit_predict(x)
     q_kmeans = np.array([kmeans.cluster_centers_[i] for i in x_kmeans])
     return q_kmeans.reshape(orig_shape)
+
 
 def optimal_matrix(cov):
     tmp_u, _, _ = torch.svd(cov)
@@ -77,7 +78,7 @@ def optimal_matrix(cov):
     return u.clone(), s.clone()  # TODO
 
 
-def get_projection_matrix(im, projType,eigenVar):
+def get_projection_matrix(im, projType, eigenVar):
     if projType == 'pca':
         # covariance matrix
         cov = torch.matmul(im, im.t()) / im.shape[1]
@@ -103,8 +104,8 @@ def get_projection_matrix(im, projType,eigenVar):
         # mnOr = torch.mean(u, dim = 1 , keepdim=True)
         u = torch.tensor(quantize1d_kmeans(u.cpu().detach().numpy(), num_bits=8)).cuda()
         # mnCurr = torch.mean(u , dim = 1, keepdim=True)
-        #bias corr
-        #u = u - mnCurr + mnOr
+        # bias corr
+        # u = u - mnCurr + mnOr
     elif projType == 'pcaSparse':
 
         transformer = SparsePCA(alpha=1)
@@ -125,7 +126,7 @@ def get_projection_matrix(im, projType,eigenVar):
 
 
 class ReLuPCA(nn.Module):
-    def __init__(self, args, mxRelu6 = False , clamp = 'gaus'):
+    def __init__(self, args, mxRelu6=False, clamp='gaus'):
         super(ReLuPCA, self).__init__()
         self.actBitwidth = args.actBitwidth
         self.projType = args.projType
@@ -148,54 +149,53 @@ class ReLuPCA(nn.Module):
             self.relu = nn.ReLU6(inplace=True)
         else:
             self.relu = nn.ReLU(inplace=True)
+
     #    if self.microBlockSz > 1:
     #        assert (self.microBlockSz % dataBasicSize == 0 )
-     #   assert (self.channelsDiv % 2 == 0)
+    #   assert (self.channelsDiv % 2 == 0)
 
-
-    def featuresReshape(self,input,N,C,H,W):
-        #check input
+    def featuresReshape(self, input, N, C, H, W):
+        # check input
         if (self.microBlockSz > H):
             self.microBlockSz = H
         if (self.channelsDiv > C):
             self.channelsDiv = C
         assert (C % self.channelsDiv == 0)
-        Ct = (C / self.channelsDiv)
-        featureSize = self.microBlockSz*self.microBlockSz*Ct
-   #     assert(featureSize < 7000) #constant for SVD converge TODO - check correct value
+        Ct = C // self.channelsDiv
+        featureSize = self.microBlockSz * self.microBlockSz * Ct
+        #     assert(featureSize < 7000) #constant for SVD converge TODO - check correct value
 
+        input = input.view(-1, Ct, H, W)  # N' x Ct x H x W
+        input = input.permute(0, 2, 3, 1)  # N' x H x W x Ct
+        input = input.contiguous().view(-1, self.microBlockSz, W, Ct).permute(0, 2, 1, 3)  # N'' x W x microBlockSz x Ct
+        input = input.contiguous().view(-1, self.microBlockSz, self.microBlockSz, Ct).permute(0, 3, 2,
+                                                                                              1)  # N''' x Ct x microBlockSz x microBlockSz
 
-        input = input.view(-1,Ct,H,W) # N' x Ct x H x W
-        input = input.permute(0,2,3,1) # N' x H x W x Ct
-        input = input.contiguous().view(-1,self.microBlockSz,W,Ct).permute(0,2,1,3) # N'' x W x microBlockSz x Ct
-        input = input.contiguous().view(-1,self.microBlockSz,self.microBlockSz,Ct).permute(0,3,2,1) # N''' x Ct x microBlockSz x microBlockSz
+        return input.contiguous().view(-1, featureSize).t()
 
-        return input.contiguous().view(-1,featureSize).t()
-
-    def featuresReshapeBack(self,input,N,C,H,W):
+    def featuresReshapeBack(self, input, N, C, H, W):
 
         input = input.t()
-        Ct = (C / self.channelsDiv)
+        Ct = C // self.channelsDiv
 
-        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2, 1) # N'''  x microBlockSz x microBlockSz x Ct
-        input = input.contiguous().view(-1, H,self.microBlockSz, Ct).permute(0, 2, 1, 3) # N''  x microBlockSz x H x Ct
-        input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2) # N' x Ct x H x W X
+        input = input.view(-1, Ct, self.microBlockSz, self.microBlockSz).permute(0, 3, 2,
+                                                                                 1)  # N'''  x microBlockSz x microBlockSz x Ct
+        input = input.contiguous().view(-1, H, self.microBlockSz, Ct).permute(0, 2, 1,
+                                                                              3)  # N''  x microBlockSz x H x Ct
+        input = input.contiguous().view(-1, H, W, Ct).permute(0, 3, 1, 2)  # N' x Ct x H x W X
 
-        input = input.contiguous().view(N,C,H,W) # N x C x H x W
+        input = input.contiguous().view(N, C, H, W)  # N x C x H x W
 
         return input
-
-
-
 
     def forward(self, input):
 
         if self.project:
-         #   input = self.relu(input)
+            #   input = self.relu(input)
             N, C, H, W = input.shape  # N x C x H x W
-          #  im = input.detach().transpose(0, 1).contiguous()
-           # im = input.contiguous().view(input.shape[0], -1)
-            im = self.featuresReshape(input,N,C,H,W)
+            #  im = input.detach().transpose(0, 1).contiguous()
+            # im = input.contiguous().view(input.shape[0], -1)
+            im = self.featuresReshape(input, N, C, H, W)
 
             self.channels = im.shape[0]
             if not hasattr(self, 'clampValL'):
@@ -211,31 +211,25 @@ class ReLuPCA(nn.Module):
             if not hasattr(self, 'numElems'):
                 self.register_buffer('numElems', torch.zeros(self.channels))
 
-
-
             mn = torch.mean(im, dim=1, keepdim=True)
             # Centering the data
             im = im - mn
 
             # Calculate projection matrix if needed
             if self.collectStats:
-                self.u, self.s = get_projection_matrix(im, self.projType,self.eigenVar)
+                self.u, self.s = get_projection_matrix(im, self.projType, self.eigenVar)
                 self.original_channels = self.u.shape[0]
                 # sRatio = torch.cumsum(self.s, 0) / torch.sum(self.s)
                 # cutIdx = (sRatio >= 0.8).nonzero()[0].type(torch.float32)
                 # print((cutIdx / self.s.shape[0]).item())
 
-
-
             self.channels = self.u.shape[1]
 
-            # projectionm
+            # projection
             imProj = torch.matmul(self.u.t(), im)
 
             mult = torch.zeros(1).to(imProj)
             add = torch.zeros(1).to(imProj)
-
-
 
             if self.collectStats:
                 # collect b of laplacian distribution
@@ -266,15 +260,12 @@ class ReLuPCA(nn.Module):
 
             if self.actBitwidth < 30:
                 imProj, mult, add = part_quant(imProj, max=dynMax, min=dynMin,
-                                                           bitwidth=self.actBitwidth)
-
+                                               bitwidth=self.actBitwidth)
 
             # for i in range(0, self.channels):
             #     clampMax = self.clampVal[i].item()
             #     clampMin = -clampMax
             #     imProj[i, :] = torch.clamp(imProj[i, :], max=clampMax, min=clampMin)
-
-
 
             # if self.stats == 'first' or self.stats == 'all':
             #     dynMax = torch.max(imProj)
@@ -288,16 +279,13 @@ class ReLuPCA(nn.Module):
             #         imProj[i, :], mult[i], add[i] = part_quant(imProj[i, :], max=dynMax, min=dynMin,
             #                                                    bitwidth=self.actBitwidth)
 
-          #  if self.collectStats and self.actBitwidth < 30:
+            #  if self.collectStats and self.actBitwidth < 30:
             self.act_size = imProj.numel()
             self.bit_per_entry = shannon_entropy(imProj).item()
             self.bit_count = self.bit_per_entry * self.act_size
-
-            self.bit_countH = huffman_encode(imProj)
-            self.bit_per_entryH = self.bit_countH / self.act_size
-
-
-
+            if False:  # TODO
+                self.bit_countH = huffman_encode(imProj)
+                self.bit_per_entryH = self.bit_countH / self.act_size
 
             # if self.actBitwidth < 30:
             #     for i in range(0, self.channels):
@@ -306,12 +294,7 @@ class ReLuPCA(nn.Module):
             if self.actBitwidth < 30:
                 imProj = imProj * mult + add
 
-
-
-
             imProj = torch.matmul(self.u, imProj)
-
-
 
             # Bias Correction
             imProj = imProj - torch.mean(imProj, dim=1, keepdim=True)
@@ -321,8 +304,8 @@ class ReLuPCA(nn.Module):
             imProj = imProj + mn
 
             # return to general
-         #   input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
-          #  input = imProj.contiguous().view(N, C, H, W)# N x C x H x W
+            #   input = imProj.view(C, N, H, W).transpose(0, 1).contiguous()  # N x C x H x W
+            #  input = imProj.contiguous().view(N, C, H, W)# N x C x H x W
             input = self.featuresReshapeBack(imProj, N, C, H, W)
 
             self.collectStats = False
@@ -330,10 +313,10 @@ class ReLuPCA(nn.Module):
         input = self.relu(input)
         return input
 
-    def updateClamp(self,data):
+    def updateClamp(self, data):
         self.lapB[0] = (self.lapB[0] / self.numElems[0])
         self.clampValL[0] = opt.minimize_scalar(
-                    lambda x: mse_laplace(x, b=self.lapB[0].item(), num_bits=self.actBitwidth)).x
+            lambda x: mse_laplace(x, b=self.lapB[0].item(), num_bits=self.actBitwidth)).x
 
         self.clampVal = self.clampValL[0]
 
@@ -663,7 +646,7 @@ class ConvBNPCA(nn.Conv2d):
 def mse_laplace(alpha, b, num_bits):
     #  return 2 * (b ** 2) * np.exp(-alpha / b) + ((alpha ** 2) / (3 * 2 ** (2 * num_bits)))
     exp_val = 1e300 if -alpha / b > 690 else np.exp(-alpha / b)  # prevent overflow
-   # res = (b ** 2) * exp_val + ((alpha ** 2) / (24 * 2 ** (2 * num_bits))) #Fused relu
+    # res = (b ** 2) * exp_val + ((alpha ** 2) / (24 * 2 ** (2 * num_bits))) #Fused relu
     res = 2 * (b ** 2) * exp_val + ((alpha ** 2) / (3 * 2 ** (2 * num_bits)))
     return res
 
@@ -685,19 +668,18 @@ def part_quant(x, max, min, bitwidth):
         return q_x, 1, 0
 
 
-def part_quant_force_zero(x,max,min,bitwidth):
-
-
+def part_quant_force_zero(x, max, min, bitwidth):
     if max != min:
         act_scale = (2 ** bitwidth - 1) / (max - min)
         initial_zero_point = torch.tensor(-min * act_scale)
         # make zero exactly represented
         zero_point = Round.apply(initial_zero_point)
-        q_x = Round.apply(x*act_scale + zero_point)
+        q_x = Round.apply(x * act_scale + zero_point)
         return q_x, 1 / act_scale, zero_point
     else:
         q_x = x
     return q_x, 1, 0
+
 
 def act_quant(x, max, min, bitwidth):
     if max != min:
@@ -706,8 +688,6 @@ def act_quant(x, max, min, bitwidth):
     else:
         q_x = x
     return q_x
-
-
 
 
 class Round(torch.autograd.Function):
