@@ -21,6 +21,7 @@ from torch.cuda import manual_seed as cuda_manual_seed
 from torch.nn import CrossEntropyLoss
 
 import Models
+from absorbe_bn import search_absorbe_bn
 from run import Run
 from utils import loadModelNames, loadDatasets, saveArgsToJSON, TqdmLoggingHandler, load_data, checkModelDataset
 from quantizeWeights import quantizeWeights
@@ -131,10 +132,11 @@ if __name__ == '__main__':
         # Load checkpoint.
         logging.info('==> Resuming from checkpoint..')
         model.loadPreTrained()
+        #search_absorbe_bn(model)
 
 
     #Weights quantization
-    if args.weightBitwidth < 32 :
+    if False:#args.weightBitwidth < 32 :
 
    #     model = quantizeWeights(model, args.weightBitwidth, logging)
 
