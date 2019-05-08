@@ -124,7 +124,6 @@ if __name__ == '__main__':
     modelClass = Models.__dict__[args.model]
     model = modelClass(args)
 
-
     # Parameters
     start_epoch = 0
     # preTrained
@@ -132,24 +131,7 @@ if __name__ == '__main__':
         # Load checkpoint.
         logging.info('==> Resuming from checkpoint..')
         model.loadPreTrained()
-        #search_absorbe_bn(model)
-
-
-    #Weights quantization
-    if False:#args.weightBitwidth < 32 :
-
-   #     model = quantizeWeights(model, args.weightBitwidth, logging)
-
-        model_path = './qmodels'
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-        model_path = os.path.join(model_path, args.model + ('_kmeans%dbit.pt' % args.weightBitwidth))
-        if not os.path.exists(model_path):
-            model = quantizeWeights(model, args.weightBitwidth,logging)
-            torch.save(model,model_path)
-        else:
-            torch.load(model_path)
-            logging.info('Loaded preTrained model with weights quantized to {} bits'.format(args.weightBitwidth))
+        search_absorbe_bn(model)
 
 
     model = model.cuda()
@@ -166,13 +148,13 @@ if __name__ == '__main__':
                                                                environ.get('CUDA_VISIBLE_DEVICES')))
 
 
-
-
     # collect statistics
     if args.project:
         logging.info('Starting collect statistics')
         run.collectStats(trainLoader)
         logging.info('Finish collect statistics')
+        # Weights quantization
+        run.model = quantizeWeights(run.model.cpu(), args.weightBitwidth, logging).cuda()
         logging.info('Run Projection on inference')
         run.runTest(args, testLoader, 0)
     else:

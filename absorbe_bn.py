@@ -3,7 +3,6 @@ import torch.nn as nn
 
 
 def remove_bn_params(bn_module):
-    bn_module.absorbed = True
     bn_module.register_buffer('running_mean', None)
     bn_module.register_buffer('running_var', None)
     bn_module.register_parameter('weight', None)
@@ -11,7 +10,6 @@ def remove_bn_params(bn_module):
 
 
 def init_bn_params(bn_module):
-    bn_module.absorbed = True
     bn_module.running_mean.fill_(0)
     bn_module.running_var.fill_(1)
     if bn_module.affine:
@@ -60,10 +58,14 @@ def is_absorbing(m):
     return isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear)
 
 
-def search_absorbe_bn(model, prev=None, remove_bn=False, verbose=True):
+def search_absorbe_bn(model, prev=None, remove_bn=False, verbose=False):
     with torch.no_grad():
         for m in model.children():
-            if is_bn(m) and is_absorbing(prev):
-                absorb_bn(prev, m, remove_bn=remove_bn, verbose=verbose)
+            if is_bn(m):
+                if is_absorbing(prev):
+                    absorb_bn(prev, m, remove_bn=remove_bn, verbose=verbose)
+                    m.absorbed = True
+                else:
+                    m.absorbed = False
             search_absorbe_bn(m, remove_bn=remove_bn, verbose=verbose)
             prev = m

@@ -33,14 +33,13 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
 
         self.conv1 = conv3x3(args, in_planes, planes, stride)
-        self.conv2 = conv3x3(args, planes, planes)
-
         self.bn1 = nn.BatchNorm2d(planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-
         self.relu1 = nn.ReLU(inplace=True)
 
+        self.conv2 = conv3x3(args, planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.relu2 = nn.ReLU(inplace=True)
+
         self.downsample = downsample
 
         self.stride = stride
@@ -84,12 +83,12 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = nn.BatchNorm2d(planes)
+        self.relu1 = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes, stride)
         self.bn2 = nn.BatchNorm2d(planes)
+        self.relu2 = nn.ReLU(inplace=True)
         self.conv3 = conv1x1(planes, planes * self.expansion)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.relu2 = nn.ReLU(inplace=True)
         self.relu3 = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride

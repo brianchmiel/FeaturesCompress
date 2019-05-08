@@ -32,9 +32,6 @@ def bn_layers(name, param):
     return (param.dim() == 1) and (param.shape[0] != 1000)
 
 
-
-
-
 def quantize_model_parameters(model, num_bits):
     # Quantize parameters of the model with kmeans
     named_params = [np for np in model.named_parameters() if not bn_layers(*np) and not leave_8_bit(*np)]
